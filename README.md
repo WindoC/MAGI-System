@@ -12,9 +12,9 @@ Transparent read-only multi-agent deliberation system based on `PRD.md`.
 
 Configured default agent models:
 
-- Melchior: `qwen/qwen3.6-27b`
+- Melchior: `nvidia/nemotron-3-super-120b-a12b:free`
 - Balthasar: `google/gemma-4-31b-it:free`
-- Casper: `openai/gpt-oss-20b:free`
+- Casper: `openai/gpt-oss-120b:free`
 
 ## Commands
 
