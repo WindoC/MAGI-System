@@ -89,7 +89,9 @@ export class MagiEngine {
   async run(options: EngineRunOptions): Promise<MagiState> {
     const maxRounds = options.maxRounds ?? 5;
     const language = options.language ?? "en";
-    const internetSearchEnabled = options.enableInternetSearch ?? false;
+    const internetSearchRequested = options.enableInternetSearch ?? false;
+    const internetSearchAllowed = isInternetSearchAllowed();
+    const internetSearchEnabled = internetSearchRequested && internetSearchAllowed;
     const state: GraphState = {
       id: undefined,
       query: options.query,
@@ -99,7 +101,13 @@ export class MagiEngine {
       shared_search_pool: [],
       discussion_history: [],
       tool_history: [],
-      user_audit_log: [],
+      user_audit_log: internetSearchRequested && !internetSearchAllowed
+        ? [{
+            event: "internet_search_disabled_by_env",
+            env: "MAGI_ALLOW_INTERNET_SEARCH",
+            requested: true
+          }]
+        : [],
       thinking_log: [],
       language,
       internet_search_enabled: internetSearchEnabled,
@@ -690,6 +698,15 @@ function mergeStateForStream(state: GraphState, update: GraphUpdate): MagiState 
 function getMaxToolIterations(): number {
   const configured = Number(process.env.MAGI_MAX_TOOL_ITERATIONS ?? 2);
   return Number.isFinite(configured) ? Math.max(0, Math.floor(configured)) : 2;
+}
+
+function isInternetSearchAllowed(): boolean {
+  const value = process.env.MAGI_ALLOW_INTERNET_SEARCH;
+  if (value === undefined) {
+    return true;
+  }
+
+  return !["0", "false", "no", "off", "disabled"].includes(value.toLowerCase());
 }
 
 function sanitizeToolRequests(outputs: AgentOutput[], internetSearchEnabled: boolean): AgentOutput[] {

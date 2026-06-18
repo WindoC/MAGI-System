@@ -43,7 +43,7 @@ OpenRouter requests use a system message containing the required agent-output JS
 
 Backend final decisions are language-neutral metadata. The frontend localizes final summaries and labels.
 
-Internet search is disabled by default. When enabled, agents may use the read-only `internet_search` tool backed by OpenRouter web search; same-round tool results remain private to that agent until the next round snapshot. Failed searches return an inspectable empty result set instead of dummy local results.
+Internet search is disabled by default per discussion request. Deployments can also force it off with `MAGI_ALLOW_INTERNET_SEARCH=false`; when the environment allows it and the request enables it, agents may use the read-only `internet_search` tool backed by OpenRouter web search. Same-round tool results remain private to that agent until the next round snapshot. Failed searches return an inspectable empty result set instead of dummy local results.
 
 ## LangGraph Flow
 
@@ -89,6 +89,7 @@ OpenRouter generation can be configured with:
 ```powershell
 $env:OPENROUTER_API_KEY='...'
 $env:OPENROUTER_BASE_URL='https://openrouter.ai/api/v1'
+$env:MAGI_ALLOW_INTERNET_SEARCH='true'
 $env:OPENROUTER_SEARCH_MODEL='perplexity/sonar-pro-search'
 $env:OPENROUTER_SEARCH_MAX_RESULTS='5'
 $env:MAGI_NUM_PREDICT='1800'

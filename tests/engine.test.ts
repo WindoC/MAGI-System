@@ -212,6 +212,27 @@ describe("MagiEngine", () => {
     });
   });
 
+  it("lets deployment disable internet search even when the request enables it", async () => {
+    vi.stubEnv("MAGI_ALLOW_INTERNET_SEARCH", "false");
+    const runner = new SequenceRunner([
+      { melchior: "yes", balthasar: "no", casper: "yes" },
+      { melchior: "yes", balthasar: "yes", casper: "yes" }
+    ]);
+    const search = new RecordingSearch();
+    const engine = new MagiEngine({ agentRunner: runner, searchAdapter: search });
+
+    const state = await engine.run({ query: "approve design?", maxRounds: 2, enableInternetSearch: true });
+
+    expect(search.calls).toHaveLength(0);
+    expect(state.internet_search_enabled).toBe(false);
+    expect(state.tool_history).toHaveLength(0);
+    expect(state.user_audit_log).toContainEqual({
+      event: "internet_search_disabled_by_env",
+      env: "MAGI_ALLOW_INTERNET_SEARCH",
+      requested: true
+    });
+  });
+
   it("keeps the graph running when one agent model call fails", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const runner = new OneAgentFailsRunner([{ melchior: "yes", balthasar: "yes", casper: "yes" }]);
