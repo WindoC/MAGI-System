@@ -81,12 +81,37 @@ select {
   transition: width 180ms ease;
 }
 
+.magi-console.auth-locked {
+  filter: brightness(0.72);
+  pointer-events: none;
+}
+
 .console-header {
   display: flex;
   justify-content: space-between;
+  align-items: flex-start;
   gap: 16px;
   border-bottom: 2px solid #f36c12;
   padding-bottom: 10px;
+}
+
+.console-status {
+  display: flex;
+  justify-content: flex-end;
+  gap: 16px;
+  margin-left: auto;
+  text-align: right;
+}
+
+.decision-chip {
+  min-width: 120px;
+}
+
+.auth-chip {
+  min-width: 180px;
+  border-left: 2px solid #f36c12;
+  padding-left: 14px;
+  text-align: right;
 }
 
 .console-header span {
@@ -104,6 +129,29 @@ select {
   color: #ff9a28;
   font-size: 16px;
   text-transform: uppercase;
+}
+
+.auth-chip small {
+  display: block;
+  margin-top: 4px;
+  color: #5fcfff;
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.chip-logout {
+  min-height: 28px;
+  margin-top: 8px;
+  padding: 0 10px;
+  border: 2px solid #5fcfff;
+  color: #5fcfff;
+  font-size: 11px;
+}
+
+.chip-logout:hover:not(:disabled) {
+  background: #5fcfff;
+  color: #050606;
 }
 
 .magi-stage {
@@ -422,6 +470,59 @@ button:disabled {
   color: #ff3030;
 }
 
+.auth-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 16;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(0, 0, 0, 0.42);
+}
+
+.auth-window {
+  width: min(460px, calc(100vw - 36px));
+  border: 2px solid #f36c12;
+  background:
+    linear-gradient(90deg, rgba(95, 207, 255, 0.08) 1px, transparent 1px),
+    linear-gradient(rgba(95, 207, 255, 0.08) 1px, transparent 1px),
+    rgba(5, 8, 9, 0.98);
+  background-size: 22px 22px;
+  box-shadow: 0 0 0 1px #130c07 inset, 0 0 36px rgba(243, 108, 18, 0.28);
+  padding: 18px;
+}
+
+.auth-window-head {
+  border-bottom: 2px solid #f36c12;
+  margin: -2px -2px 16px;
+  padding: 0 0 14px;
+}
+
+.auth-window-head span {
+  display: block;
+  color: #ff7a18;
+  font-size: 28px;
+  font-weight: 900;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.auth-window-head strong {
+  display: block;
+  margin-top: 8px;
+  color: #ff9a28;
+  font-size: 16px;
+  text-transform: uppercase;
+}
+
+.auth-window p {
+  margin: 0 0 16px;
+}
+
+.auth-window button {
+  width: 100%;
+}
+
 .edge-toggle {
   position: fixed;
   right: 0;
@@ -730,6 +831,19 @@ pre {
 }
 
 @media (max-width: 980px) {
+  .console-header {
+    flex-wrap: wrap;
+  }
+
+  .console-status {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .auth-chip {
+    min-width: 160px;
+  }
+
   .final,
   .vote-strip,
   .stats-grid {

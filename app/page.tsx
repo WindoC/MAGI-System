@@ -5,6 +5,14 @@ import type { AgentName, AgentOutput, MagiState, OutputLanguage, ThinkingLog } f
 
 const settingsStorageKey = "magi-system:user-settings";
 
+type AuthSessionView = {
+  authenticated: boolean;
+  user: { id: string; email?: string; name?: string } | null;
+  quotaRemaining: number | null;
+  expiresAt: string | null;
+  quota?: { remaining: number; limit?: number; resetAt?: string };
+};
+
 const agentOrder: Array<{ name: AgentName; label: string; slot: string }> = [
   { name: "balthasar", label: "BALTHASAR · 2", slot: "top" },
   { name: "casper", label: "CASPER · 3", slot: "left" },
@@ -55,7 +63,15 @@ const copy: Record<OutputLanguage, Record<string, string>> = {
     agentErrors: "Agent errors",
     noThinking: "No raw thinking exposed by model.",
     emptyTitle: "Decision Detail Panel",
-    emptyBody: "Run a query to inspect search records, discussion rounds, persuasion messages, and hidden thinking logs."
+    emptyBody: "Run a query to inspect search records, discussion rounds, persuasion messages, and hidden thinking logs.",
+    authTitle: "Authentication Required",
+    authBody: "Sign in through the OAuth2 identity system before using MAGI.",
+    signIn: "Sign in",
+    signOut: "Sign out",
+    signedIn: "Signed in",
+    quota: "Quota",
+    quotaEmpty: "Quota exhausted",
+    checkingAuth: "Checking auth"
   },
   "zh-TW": {
     proposal: "提訴",
@@ -100,7 +116,15 @@ const copy: Record<OutputLanguage, Record<string, string>> = {
     agentErrors: "AGENT ERROR",
     noThinking: "模型沒有輸出 raw thinking。",
     emptyTitle: "決議詳細面板",
-    emptyBody: "執行查詢後可檢視搜尋紀錄、討論回合、說服訊息與隱藏 thinking。"
+    emptyBody: "執行查詢後可檢視搜尋紀錄、討論回合、說服訊息與隱藏 thinking。",
+    authTitle: "需要登入",
+    authBody: "使用 MAGI 前必須先透過 OAuth2 認證系統登入。",
+    signIn: "登入",
+    signOut: "登出",
+    signedIn: "已登入",
+    quota: "配額",
+    quotaEmpty: "配額不足",
+    checkingAuth: "確認登入"
   },
   ja: {
     proposal: "提訴",
@@ -145,7 +169,15 @@ const copy: Record<OutputLanguage, Record<string, string>> = {
     agentErrors: "AGENT ERROR",
     noThinking: "モデルは raw thinking を出力していません。",
     emptyTitle: "決定詳細パネル",
-    emptyBody: "クエリを実行すると、検索履歴、議論ラウンド、説得メッセージ、非表示の thinking を確認できます。"
+    emptyBody: "クエリを実行すると、検索履歴、議論ラウンド、説得メッセージ、非表示の thinking を確認できます。",
+    authTitle: "認証が必要です",
+    authBody: "MAGI を使用する前に OAuth2 認証システムでサインインしてください。",
+    signIn: "サインイン",
+    signOut: "サインアウト",
+    signedIn: "サインイン済み",
+    quota: "クォータ",
+    quotaEmpty: "クォータ不足",
+    checkingAuth: "認証確認中"
   }
 };
 
@@ -160,7 +192,12 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [authSession, setAuthSession] = useState<AuthSessionView | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState("");
   const t = copy[language];
+  const quotaRemaining = authSession?.quota?.remaining ?? authSession?.quotaRemaining ?? null;
+  const canRun = authSession?.authenticated === true && (quotaRemaining === null || quotaRemaining > 0);
 
   useEffect(() => {
     const savedSettings = readStoredSettings();
@@ -190,7 +227,38 @@ export default function Home() {
     );
   }, [language, maxRounds, enableInternetSearch, settingsLoaded]);
 
+  useEffect(() => {
+    void refreshSession();
+  }, []);
+
+  async function refreshSession() {
+    setAuthLoading(true);
+    setAuthError("");
+    try {
+      const response = await fetch("/api/auth/session", { cache: "no-store" });
+      if (!response.ok) {
+        throw new Error("Session check failed");
+      }
+      setAuthSession((await response.json()) as AuthSessionView);
+    } catch (err) {
+      setAuthError(err instanceof Error ? err.message : "Session check failed");
+      setAuthSession({ authenticated: false, user: null, quotaRemaining: null, expiresAt: null });
+    } finally {
+      setAuthLoading(false);
+    }
+  }
+
+  async function logout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    setAuthSession({ authenticated: false, user: null, quotaRemaining: null, expiresAt: null });
+  }
+
   async function runDiscussion() {
+    if (!canRun) {
+      setError(authSession?.authenticated ? t.quotaEmpty : t.authTitle);
+      return;
+    }
+
     setLoading(true);
     setError("");
     setState(null);
@@ -254,6 +322,7 @@ export default function Home() {
       setError(err instanceof Error ? err.message : "Discussion failed");
     } finally {
       setLoading(false);
+      void refreshSession();
     }
   }
 
@@ -270,15 +339,27 @@ export default function Home() {
     <main className="shell">
       <div className="scanlines" aria-hidden="true" />
       <section className={`workspace ${detailOpen && !detailFullscreen ? "details-open" : ""}`}>
-        <aside className="magi-console">
+        <aside className={`magi-console ${authSession?.authenticated ? "" : "auth-locked"}`}>
           <div className="console-header">
             <div>
               <span>{t.proposal}</span>
               <h1>MAGI System</h1>
             </div>
-            <div>
-              <span>{t.decision}</span>
-              <strong>{loading ? t.deliberating : decisionLabel(state?.final_decision?.result, language, t.standby)}</strong>
+            <div className="console-status">
+              <div className="decision-chip">
+                <span>{t.decision}</span>
+                <strong>{loading ? t.deliberating : decisionLabel(state?.final_decision?.result, language, t.standby)}</strong>
+              </div>
+              <div className="auth-chip">
+                <span>{authSession?.authenticated ? t.signedIn : t.checkingAuth}</span>
+                <strong>{authSession?.user?.name || authSession?.user?.email || authSession?.user?.id || "-"}</strong>
+                <small>{t.quota}: {quotaRemaining ?? "-"}</small>
+                {authSession?.authenticated ? (
+                  <button type="button" className="chip-logout" onClick={logout} title={t.signOut}>
+                    {t.signOut}
+                  </button>
+                ) : null}
+              </div>
             </div>
           </div>
 
@@ -327,13 +408,30 @@ export default function Home() {
                 />
                 <span>{t.searchTool}</span>
               </label>
-              <button onClick={runDiscussion} disabled={loading || !query.trim()}>
+              <button onClick={runDiscussion} disabled={loading || !query.trim() || !canRun}>
                 {loading ? t.deliberating : t.run}
               </button>
             </div>
+            {!canRun && authSession?.authenticated ? <p className="error">{t.quotaEmpty}</p> : null}
             {error ? <p className="error">{error}</p> : null}
           </div>
         </aside>
+
+        {!authSession?.authenticated ? (
+          <div className="auth-overlay" role="dialog" aria-modal="true" aria-labelledby="auth-title">
+            <section className="auth-window">
+              <div className="auth-window-head">
+                <span>MAGI System</span>
+                <strong id="auth-title">{authLoading ? t.checkingAuth : t.authTitle}</strong>
+              </div>
+              <p>{t.authBody}</p>
+              {authError ? <p className="error">{authError}</p> : null}
+              <button type="button" onClick={() => { window.location.href = "/api/auth/login"; }} disabled={authLoading}>
+                {authLoading ? t.checkingAuth : t.signIn}
+              </button>
+            </section>
+          </div>
+        ) : null}
 
         {!detailOpen ? (
           <button

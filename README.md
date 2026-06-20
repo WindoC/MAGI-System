@@ -29,6 +29,25 @@ Open `http://localhost:3000`.
 
 The system only exposes read-only internal search tooling. It does not execute shell commands, modify external systems, call write APIs, or automate external environments.
 
+## Authentication and Quota
+
+The UI requires an OAuth2/OIDC login before a user can start a discussion. The server stores the authenticated session in a signed `HttpOnly` cookie and only exposes a safe user/session summary to the browser.
+
+Required OAuth2 settings:
+
+```powershell
+$env:SESSION_SECRET='replace-with-a-long-random-secret'
+$env:OAUTH_CLIENT_ID='...'
+$env:OAUTH_CLIENT_SECRET='...'
+$env:OAUTH_AUTHORIZATION_URL='https://identity.example.com/oauth2/authorize'
+$env:OAUTH_TOKEN_URL='https://identity.example.com/oauth2/token'
+$env:OAUTH_USERINFO_URL='https://identity.example.com/oauth2/userinfo'
+$env:OAUTH_REDIRECT_URI='http://localhost:3000/api/auth/callback'
+$env:OAUTH_SCOPE='openid profile email'
+```
+
+Quota endpoints are available at `GET /api/auth/quota` and `POST /api/auth/quota/debit`. Discussion routes debit one quota unit server-side before running. If `QUOTA_API_URL` is set, the server calls `${QUOTA_API_URL}/quota` and `${QUOTA_API_URL}/debit`; otherwise it uses the signed local session quota initialized from `MAGI_DEFAULT_QUOTA`.
+
 ## Decision Logic
 
 - Agent decisions are `yes`, `no`, or `error`.
