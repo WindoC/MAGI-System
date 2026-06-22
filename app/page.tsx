@@ -241,12 +241,28 @@ export default function Home() {
       if (!response.ok) {
         throw new Error("Session check failed");
       }
-      setAuthSession((await response.json()) as AuthSessionView);
+      const session = (await response.json()) as AuthSessionView;
+      setAuthSession(session);
     } catch (err) {
       setAuthError(err instanceof Error ? err.message : "Session check failed");
       setAuthSession({ authenticated: false, user: null, quotaRemaining: null, expiresAt: null });
     } finally {
       setAuthLoading(false);
+    }
+  }
+
+  async function refreshQuota() {
+    try {
+      const response = await fetch("/api/auth/quota", { cache: "no-store" });
+      if (!response.ok) {
+        return;
+      }
+      const payload = (await response.json()) as { quota?: AuthSessionView["quota"] };
+      if (payload.quota) {
+        setAuthSession((current) => current?.authenticated ? { ...current, quota: payload.quota } : current);
+      }
+    } catch {
+      // Keep the cached session view when the optional quota refresh fails.
     }
   }
 
@@ -264,6 +280,7 @@ export default function Home() {
     setLoading(true);
     setError("");
     setState(null);
+    let completed = false;
 
     try {
       const response = await fetch("/api/discussions/stream", {
@@ -320,11 +337,16 @@ export default function Home() {
           throw new Error(event.error ?? "Discussion failed");
         }
       }
+      completed = true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Discussion failed");
     } finally {
       setLoading(false);
-      void refreshSession();
+      if (completed) {
+        void refreshQuota();
+      } else {
+        void refreshSession();
+      }
     }
   }
 

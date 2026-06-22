@@ -52,6 +52,7 @@ const defaultScope = "openid profile email";
 const defaultQuota = 10;
 const defaultQuotaApp = "magi-system";
 const defaultQuotaFeature = "resolve";
+const sealedCookieVersion = "v1";
 
 export function createOAuthLogin(request: Request): { redirectUrl: string; setCookie: string } {
   if (!isAuthEnabled()) {
@@ -82,7 +83,7 @@ export function createOAuthLogin(request: Request): { redirectUrl: string; setCo
 
   return {
     redirectUrl: authorizationUrl.toString(),
-    setCookie: serializeCookie(oauthStateCookieName, signJson(oauthState), {
+    setCookie: serializeCookie(oauthStateCookieName, sealJson(oauthState), {
       httpOnly: true,
       maxAge: 600,
       sameSite: "Lax",
@@ -98,7 +99,7 @@ export async function completeOAuthCallback(
   const callbackUrl = new URL(request.url);
   const code = callbackUrl.searchParams.get("code");
   const state = callbackUrl.searchParams.get("state");
-  const storedState = readSignedJson<OAuthState>(readCookie(request, oauthStateCookieName));
+  const storedState = openJson<OAuthState>(readCookie(request, oauthStateCookieName));
 
   if (!code || !state || !storedState || storedState.state !== state || new Date(storedState.expiresAt).getTime() <= Date.now()) {
     return {
@@ -162,11 +163,12 @@ export async function completeOAuthCallback(
     quotaRemaining: isExternalQuotaConfigured() || !isQuotaEnabled() ? undefined : getDefaultQuota(),
     expiresAt: new Date(Date.now() + getSessionTtlSeconds() * 1000).toISOString()
   };
+  const sessionWithQuota = await cacheExternalQuota(session, fetchImpl);
 
   return {
     ok: true,
     redirectUrl: storedState.returnTo || "/",
-    setCookie: [createSessionCookie(session, request), clearCookie(oauthStateCookieName, request)]
+    setCookie: [createSessionCookie(sessionWithQuota, request), clearCookie(oauthStateCookieName, request)]
   };
 }
 
@@ -175,7 +177,7 @@ export function readSession(request: Request): AuthSession | null {
     return createLocalSession();
   }
 
-  const session = readSignedJson<AuthSession>(readCookie(request, sessionCookieName));
+  const session = openJson<AuthSession>(readCookie(request, sessionCookieName));
   if (!session || !session.user?.id || new Date(session.expiresAt).getTime() <= Date.now()) {
     return null;
   }
@@ -321,7 +323,16 @@ export async function consumeQuotaForSession(
       return { ok: false, status: 502, error: "quota consume failed", quota: normalizeQuota(payload), requestId };
     }
 
-    return { ok: true, status: 200, quota: normalizeQuota(payload), session, requestId };
+    const quota = normalizeQuota(payload);
+    const updatedSession = quota.remaining === null ? session : { ...session, quotaRemaining: quota.remaining };
+    return {
+      ok: true,
+      status: 200,
+      quota,
+      session: updatedSession,
+      requestId,
+      setCookie: createSessionCookie(updatedSession, request)
+    };
   }
 
   const current = session.quotaRemaining ?? getDefaultQuota();
@@ -352,7 +363,7 @@ export async function debitQuotaForSession(
 }
 
 export function createSessionCookie(session: AuthSession, request: Request): string {
-  return serializeCookie(sessionCookieName, signJson(session), {
+  return serializeCookie(sessionCookieName, sealJson(session), {
     httpOnly: true,
     maxAge: getSessionTtlSeconds(),
     sameSite: "Lax",
@@ -434,6 +445,19 @@ function normalizeQuota(payload: unknown): QuotaStatus {
   };
 }
 
+async function cacheExternalQuota(session: AuthSession, fetchImpl: typeof fetch): Promise<AuthSession> {
+  if (!isQuotaEnabled() || !isExternalQuotaConfigured()) {
+    return session;
+  }
+
+  try {
+    const quota = await getQuotaForSession(session, fetchImpl);
+    return quota.remaining === null ? session : { ...session, quotaRemaining: quota.remaining };
+  } catch {
+    return session;
+  }
+}
+
 function quotaHeaders(session: AuthSession): HeadersInit {
   return { Authorization: `Bearer ${session.accessToken}` };
 }
@@ -495,29 +519,43 @@ function readCookie(request: Request, name: string): string | null {
   return null;
 }
 
-function signJson(value: unknown): string {
-  const payload = base64Url(Buffer.from(JSON.stringify(value), "utf8"));
-  const signature = base64Url(crypto.createHmac("sha256", getSessionSecret()).update(payload).digest());
-  return `${payload}.${signature}`;
+function sealJson(value: unknown): string {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", cookieEncryptionKey(), iv);
+  const ciphertext = Buffer.concat([
+    cipher.update(JSON.stringify(value), "utf8"),
+    cipher.final()
+  ]);
+  const tag = cipher.getAuthTag();
+  return `${sealedCookieVersion}.${base64Url(iv)}.${base64Url(ciphertext)}.${base64Url(tag)}`;
 }
 
-function readSignedJson<T>(value: string | null): T | null {
+function openJson<T>(value: string | null): T | null {
   if (!value) {
     return null;
   }
 
-  const [payload, signature] = value.split(".");
-  if (!payload || !signature) {
+  const parts = value.split(".");
+  if (parts.length !== 4) {
     return null;
   }
-
-  const expected = base64Url(crypto.createHmac("sha256", getSessionSecret()).update(payload).digest());
-  if (!timingSafeEqual(signature, expected)) {
+  const [version, ivValue, ciphertextValue, tagValue] = parts;
+  if (version !== sealedCookieVersion || !ivValue || !ciphertextValue || !tagValue) {
     return null;
   }
 
   try {
-    return JSON.parse(Buffer.from(base64UrlToBase64(payload), "base64").toString("utf8")) as T;
+    const decipher = crypto.createDecipheriv(
+      "aes-256-gcm",
+      cookieEncryptionKey(),
+      Buffer.from(base64UrlToBase64(ivValue), "base64")
+    );
+    decipher.setAuthTag(Buffer.from(base64UrlToBase64(tagValue), "base64"));
+    const plaintext = Buffer.concat([
+      decipher.update(Buffer.from(base64UrlToBase64(ciphertextValue), "base64")),
+      decipher.final()
+    ]);
+    return JSON.parse(plaintext.toString("utf8")) as T;
   } catch {
     return null;
   }
@@ -564,6 +602,10 @@ function getSessionSecret(): string {
   return secret;
 }
 
+function cookieEncryptionKey(): Buffer {
+  return crypto.createHash("sha256").update(getSessionSecret()).digest();
+}
+
 function getSessionTtlSeconds(): number {
   const parsed = Number(process.env.SESSION_TTL_SECONDS);
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 60 * 60 * 8;
@@ -589,12 +631,6 @@ function base64Url(input: Buffer): string {
 function base64UrlToBase64(input: string): string {
   const padded = input.padEnd(input.length + ((4 - (input.length % 4)) % 4), "=");
   return padded.replace(/-/g, "+").replace(/_/g, "/");
-}
-
-function timingSafeEqual(left: string, right: string): boolean {
-  const leftBuffer = Buffer.from(left);
-  const rightBuffer = Buffer.from(right);
-  return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer);
 }
 
 function stringValue(value: unknown): string | undefined {

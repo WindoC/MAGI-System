@@ -6,5 +6,13 @@ data/
 *.log
 .env.local
 .env
+.env.*
+!.env.example
+!.env.sample
 .problem/
 tsconfig.tsbuildinfo
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+.vercel/

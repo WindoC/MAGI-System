@@ -18,9 +18,11 @@ describe("auth and quota", () => {
 
   it("creates an OAuth2 PKCE redirect and completes callback into a safe session", async () => {
     stubOAuthEnv();
-    const login = createOAuthLogin(new Request("https://magi.test/api/auth/login?returnTo=/"));
+    const login = createOAuthLogin(new Request("https://magi.test/api/auth/login?returnTo=/private"));
     const redirect = new URL(login.redirectUrl);
     const cookie = login.setCookie.split(";")[0];
+    expect(cookie).toMatch(/^magi_oauth_state=v1\./);
+    expect(cookie).not.toContain("private");
     const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url === "https://identity.test/token") {
@@ -41,9 +43,13 @@ describe("auth and quota", () => {
 
     expect(callback.ok).toBe(true);
     if (callback.ok) {
+      expect(callback.redirectUrl).toBe("/private");
       const sessionCookie = callback.setCookie.find((value) => value.startsWith("magi_session="));
       expect(sessionCookie).toBeTruthy();
-      const session = readSession(new Request("https://magi.test", { headers: { cookie: sessionCookie!.split(";")[0] } }));
+      const sessionCookieValue = sessionCookie!.split(";")[0];
+      expect(sessionCookieValue).toMatch(/^magi_session=v1\./);
+      expect(sessionCookieValue).not.toContain("secret-access-token");
+      const session = readSession(new Request("https://magi.test", { headers: { cookie: sessionCookieValue } }));
       expect(session?.accessToken).toBe("secret-access-token");
       expect(publicSession(session)).toMatchObject({
         authenticated: true,
@@ -61,7 +67,42 @@ describe("auth and quota", () => {
     expect(result).toMatchObject({ ok: false, status: 400, error: "invalid oauth state" });
   });
 
-  it("debits local quota by updating the signed session cookie", async () => {
+  it("caches external quota in the encrypted session after OAuth login", async () => {
+    stubOAuthEnv();
+    vi.stubEnv("QUOTA_API_URL", "https://quota.test");
+    const login = createOAuthLogin(new Request("https://magi.test/api/auth/login?returnTo=/"));
+    const redirect = new URL(login.redirectUrl);
+    const cookie = login.setCookie.split(";")[0];
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "https://identity.test/token") {
+        return jsonResponse({ access_token: "secret-access-token", expires_in: 3600 });
+      }
+      if (url === "https://identity.test/userinfo") {
+        return jsonResponse({ sub: "user-1", email: "user@example.test", name: "Test User" });
+      }
+      if (url === "https://quota.test/api/apps/magi-system/quota") {
+        return jsonResponse({ app: "magi-system", feature: "resolve", remaining: 5, limit: 10, used: 5 });
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    });
+
+    const callback = await completeOAuthCallback(
+      new Request(`https://magi.test/api/auth/callback?code=abc&state=${redirect.searchParams.get("state")}`, {
+        headers: { cookie }
+      }),
+      fetchImpl as unknown as typeof fetch
+    );
+
+    expect(callback.ok).toBe(true);
+    if (callback.ok) {
+      const sessionCookie = callback.setCookie.find((value) => value.startsWith("magi_session="));
+      const session = readSession(new Request("https://magi.test", { headers: { cookie: sessionCookie!.split(";")[0] } }));
+      expect(session?.quotaRemaining).toBe(5);
+    }
+  });
+
+  it("debits local quota by updating the encrypted session cookie", async () => {
     vi.stubEnv("SESSION_SECRET", "test-secret");
     vi.stubEnv("MAGI_DEFAULT_QUOTA", "2");
     const request = new Request("https://magi.test");
@@ -94,7 +135,7 @@ describe("auth and quota", () => {
     });
   });
 
-  it("reads signed session cookies and rejects tampering", () => {
+  it("reads encrypted session cookies and rejects tampering", () => {
     vi.stubEnv("SESSION_SECRET", "test-secret");
     const request = new Request("https://magi.test");
     const cookie = createSessionCookie(
@@ -108,6 +149,7 @@ describe("auth and quota", () => {
 
     expect(readSession(new Request("https://magi.test", { headers: { cookie } }))?.user.id).toBe("user-1");
     expect(readSession(new Request("https://magi.test", { headers: { cookie: `${cookie}tampered` } }))).toBeNull();
+    expect(readSession(new Request("https://magi.test", { headers: { cookie: `${cookie}.tampered` } }))).toBeNull();
   });
 
   it("can disable SSO and return a local test session", () => {
@@ -209,6 +251,8 @@ describe("auth and quota", () => {
     });
     expect(calls[0].body).not.toHaveProperty("subject");
     expect(calls[1].body.request_id).toBe("request-1");
+    expect(consume.setCookie).toBeTruthy();
+    expect(readSession(new Request("https://magi.test", { headers: { cookie: consume.setCookie!.split(";")[0] } }))?.quotaRemaining).toBe(4);
   });
 
   it("treats Windo-C 403 quota check as a hard denial", async () => {
