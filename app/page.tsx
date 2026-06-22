@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { Dispatch, SetStateAction, SyntheticEvent } from "react";
 import type { AgentName, AgentOutput, MagiState, OutputLanguage, ThinkingLog } from "../src/magi/types";
 
 const settingsStorageKey = "magi-system:user-settings";
@@ -196,6 +197,11 @@ export default function Home() {
   const [authSession, setAuthSession] = useState<AuthSessionView | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState("");
+  const [hasUnseenDetailUpdate, setHasUnseenDetailUpdate] = useState(false);
+  const [roundUpdateTicks, setRoundUpdateTicks] = useState<Record<number, number>>({});
+  const [seenRoundTicks, setSeenRoundTicks] = useState<Record<number, number>>({});
+  const detailActivityKeyRef = useRef<string | null>(null);
+  const roundActivityRef = useRef<Record<number, string>>({});
   const t = copy[language];
   const quotaRemaining = authSession?.quota?.remaining ?? authSession?.quotaRemaining ?? null;
   const canRun = authSession?.authenticated === true && (quotaRemaining === null || quotaRemaining > 0);
@@ -232,6 +238,38 @@ export default function Home() {
   useEffect(() => {
     void refreshSession();
   }, []);
+
+  useEffect(() => {
+    const detailActivityKey = detailActivitySignature(state);
+    const roundActivity = roundActivitySignatures(state);
+    const previousDetailActivityKey = detailActivityKeyRef.current;
+    const previousRoundActivity = roundActivityRef.current;
+
+    detailActivityKeyRef.current = detailActivityKey;
+    roundActivityRef.current = roundActivity;
+
+    if (!detailActivityKey || previousDetailActivityKey === null || previousDetailActivityKey === detailActivityKey) {
+      return;
+    }
+
+    if (!detailOpen) {
+      setHasUnseenDetailUpdate(true);
+    }
+
+    const changedRounds = Object.entries(roundActivity)
+      .filter(([round, signature]) => previousRoundActivity[Number(round)] !== undefined && previousRoundActivity[Number(round)] !== signature)
+      .map(([round]) => Number(round));
+
+    if (changedRounds.length > 0) {
+      setRoundUpdateTicks((current) => {
+        const next = { ...current };
+        for (const round of changedRounds) {
+          next[round] = (next[round] ?? 0) + 1;
+        }
+        return next;
+      });
+    }
+  }, [detailOpen, state]);
 
   async function refreshSession() {
     setAuthLoading(true);
@@ -280,6 +318,11 @@ export default function Home() {
     setLoading(true);
     setError("");
     setState(null);
+    setHasUnseenDetailUpdate(false);
+    setRoundUpdateTicks({});
+    setSeenRoundTicks({});
+    detailActivityKeyRef.current = null;
+    roundActivityRef.current = {};
     let completed = false;
 
     try {
@@ -462,10 +505,13 @@ export default function Home() {
         {!detailOpen ? (
           <button
             type="button"
-            className="edge-toggle"
+            className={`edge-toggle ${hasUnseenDetailUpdate ? "has-update" : ""}`}
             aria-label={t.openDetails}
             title={t.openDetails}
-            onClick={() => setDetailOpen(true)}
+            onClick={() => {
+              setDetailOpen(true);
+              setHasUnseenDetailUpdate(false);
+            }}
           >
             {"<"}
           </button>
@@ -550,7 +596,11 @@ export default function Home() {
                 <details className="drawer" open>
                   <summary>{t.rounds}</summary>
                   {state.discussion_history.map((round) => (
-                    <details className="round-drawer" key={round.round}>
+                    <details
+                      className={`round-drawer ${hasUnseenRoundUpdate(round.round, roundUpdateTicks, seenRoundTicks) ? "has-update" : ""}`}
+                      key={round.round}
+                      onToggle={(event) => markRoundSeenOnOpen(event, round.round, roundUpdateTicks, setSeenRoundTicks)}
+                    >
                       <summary>{t.round} {round.round}</summary>
                       <div className="agents">
                         {round.agent_outputs.map((output) => {
@@ -563,7 +613,13 @@ export default function Home() {
                     </details>
                   ))}
                   {state.pending_round_snapshot && state.pending_agent_outputs && state.pending_agent_outputs.length > 0 ? (
-                    <details className="round-drawer" open>
+                    <details
+                      className={`round-drawer ${hasUnseenRoundUpdate(state.pending_round_snapshot.round, roundUpdateTicks, seenRoundTicks) ? "has-update" : ""}`}
+                      open
+                      onToggle={(event) =>
+                        markRoundSeenOnOpen(event, state.pending_round_snapshot?.round ?? 0, roundUpdateTicks, setSeenRoundTicks)
+                      }
+                    >
                       <summary>{t.round} {state.pending_round_snapshot.round} · {t.processing}</summary>
                       <div className="agents">
                         {state.pending_agent_outputs.map((output) => {
@@ -598,6 +654,78 @@ export default function Home() {
 
 function thinkingFor(thinkingLog: ThinkingLog[] | undefined, round: number, output: AgentOutput): ThinkingLog[] {
   return (thinkingLog ?? []).filter((entry) => entry.round === round && entry.agent === output.agent);
+}
+
+function detailActivitySignature(state: MagiState | null): string | null {
+  if (!state) {
+    return null;
+  }
+
+  return JSON.stringify({
+    final: state.final_decision,
+    tools: [...(state.tool_history ?? []), ...(state.pending_tool_results ?? [])].map((entry) => [
+      entry.round,
+      entry.requestingAgent,
+      entry.request.query,
+      entry.results.length
+    ]),
+    rounds: roundActivitySignatures(state),
+    thinking: [...(state.thinking_log ?? []), ...(state.pending_thinking_log ?? [])].map((entry) => [
+      entry.round,
+      entry.agent,
+      entry.iteration,
+      entry.phase,
+      entry.thinking
+    ])
+  });
+}
+
+function roundActivitySignatures(state: MagiState | null): Record<number, string> {
+  const signatures: Record<number, string> = {};
+  if (!state) {
+    return signatures;
+  }
+
+  for (const round of state.discussion_history ?? []) {
+    signatures[round.round] = JSON.stringify({
+      outputs: round.agent_outputs,
+      tools: (state.tool_history ?? []).filter((entry) => entry.round === round.round),
+      thinking: (state.thinking_log ?? []).filter((entry) => entry.round === round.round)
+    });
+  }
+
+  const pendingRound = state.pending_round_snapshot?.round;
+  if (pendingRound && state.pending_agent_outputs && state.pending_agent_outputs.length > 0) {
+    signatures[pendingRound] = JSON.stringify({
+      outputs: state.pending_agent_outputs,
+      tools: state.pending_tool_results ?? [],
+      thinking: state.pending_thinking_log ?? []
+    });
+  }
+
+  return signatures;
+}
+
+function hasUnseenRoundUpdate(round: number, updateTicks: Record<number, number>, seenTicks: Record<number, number>): boolean {
+  return (updateTicks[round] ?? 0) > (seenTicks[round] ?? 0);
+}
+
+function markRoundSeenOnOpen(
+  event: SyntheticEvent<HTMLDetailsElement>,
+  round: number,
+  updateTicks: Record<number, number>,
+  setSeenTicks: Dispatch<SetStateAction<Record<number, number>>>
+) {
+  if (!event.currentTarget.open || round <= 0) {
+    return;
+  }
+
+  const latestTick = updateTicks[round] ?? 0;
+  if (latestTick === 0) {
+    return;
+  }
+
+  setSeenTicks((current) => ({ ...current, [round]: latestTick }));
 }
 
 function mergeMagiUiState(previous: MagiState | null, incoming: MagiState): MagiState {

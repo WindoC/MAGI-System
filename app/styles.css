@@ -544,6 +544,27 @@ button:disabled {
   color: #050606;
 }
 
+.edge-toggle.has-update,
+.round-drawer.has-update > summary {
+  animation: update-breathe 1.45s ease-in-out infinite;
+  border-color: #5fcfff;
+  color: #e9fbff;
+  box-shadow: 0 0 0 1px rgba(95, 207, 255, 0.55) inset, 0 0 18px rgba(95, 207, 255, 0.55);
+}
+
+.edge-toggle.has-update::after,
+.round-drawer.has-update > summary::after {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-left: 8px;
+  border-radius: 50%;
+  background: #5fcfff;
+  box-shadow: 0 0 10px #5fcfff;
+  vertical-align: middle;
+}
+
 .detail-panel {
   position: fixed;
   top: 18px;
@@ -651,6 +672,26 @@ summary::before {
 
 details[open] > summary::before {
   content: "▾";
+}
+
+@keyframes update-breathe {
+  0%,
+  100% {
+    background: rgba(17, 16, 12, 0.98);
+    box-shadow: 0 0 0 1px rgba(95, 207, 255, 0.35) inset, 0 0 10px rgba(95, 207, 255, 0.26);
+  }
+
+  50% {
+    background: rgba(30, 149, 255, 0.32);
+    box-shadow: 0 0 0 1px rgba(95, 207, 255, 0.85) inset, 0 0 24px rgba(95, 207, 255, 0.74);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .edge-toggle.has-update,
+  .round-drawer.has-update > summary {
+    animation: none;
+  }
 }
 
 .final,
