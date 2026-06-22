@@ -8,6 +8,7 @@ export interface AuthUser {
 
 export interface AuthSession {
   user: AuthUser;
+  accessToken?: string;
   expiresAt: string;
   quotaRemaining?: number;
 }
@@ -30,21 +31,26 @@ export interface QuotaStatus {
   remaining: number;
   limit?: number;
   resetAt?: string;
+  used?: number;
+  expiresAt?: string;
 }
 
-export interface QuotaDebitResult {
+export interface QuotaOperationResult {
   ok: boolean;
   status: number;
   quota?: QuotaStatus;
   session?: AuthSession;
   setCookie?: string;
   error?: string;
+  requestId?: string;
 }
 
 const sessionCookieName = "magi_session";
 const oauthStateCookieName = "magi_oauth_state";
 const defaultScope = "openid profile email";
 const defaultQuota = 10;
+const defaultQuotaApp = "magi-system";
+const defaultQuotaFeature = "resolve";
 
 export function createOAuthLogin(request: Request): { redirectUrl: string; setCookie: string } {
   const config = getOAuthConfig(request);
@@ -147,6 +153,7 @@ export async function completeOAuthCallback(
   const userPayload = (await userResponse.json()) as Record<string, unknown>;
   const session: AuthSession = {
     user: normalizeUser(userPayload),
+    accessToken: tokenPayload.access_token,
     quotaRemaining: getDefaultQuota(),
     expiresAt: new Date(Date.now() + getSessionTtlSeconds() * 1000).toISOString()
   };
@@ -183,10 +190,12 @@ export function publicSession(session: AuthSession | null): PublicSession {
 export async function getQuotaForSession(session: AuthSession, fetchImpl: typeof fetch = fetch): Promise<QuotaStatus> {
   const externalUrl = process.env.QUOTA_API_URL;
   if (externalUrl) {
-    const url = new URL(`${externalUrl.replace(/\/$/, "")}/quota`);
-    url.searchParams.set("subject", session.user.id);
+    if (!session.accessToken) {
+      return { remaining: 0 };
+    }
+    const url = new URL(`${externalUrl.replace(/\/$/, "")}/api/apps/${getQuotaApp()}/quota`);
     const response = await fetchImpl(url, {
-      headers: quotaHeaders()
+      headers: quotaHeaders(session)
     });
     if (!response.ok) {
       return { remaining: 0 };
@@ -197,34 +206,106 @@ export async function getQuotaForSession(session: AuthSession, fetchImpl: typeof
   return { remaining: session.quotaRemaining ?? getDefaultQuota() };
 }
 
-export async function debitQuotaForSession(
+export async function checkQuotaForSession(
   request: Request,
   session: AuthSession,
   amount: number,
+  requestId: string = crypto.randomUUID(),
   fetchImpl: typeof fetch = fetch
-): Promise<QuotaDebitResult> {
+): Promise<QuotaOperationResult> {
   const externalUrl = process.env.QUOTA_API_URL;
   if (externalUrl) {
-    const response = await fetchImpl(`${externalUrl.replace(/\/$/, "")}/debit`, {
+    if (!session.accessToken) {
+      return { ok: false, status: 401, error: "missing access token", requestId };
+    }
+
+    const response = await fetchImpl(`${externalUrl.replace(/\/$/, "")}/api/quota/check`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", ...quotaHeaders() },
+      headers: { "Content-Type": "application/json", ...quotaHeaders(session) },
       body: JSON.stringify({
-        subject: session.user.id,
-        amount,
-        metadata: { product: "magi-discussion" }
+        app: getQuotaApp(),
+        feature: getQuotaFeature(),
+        quantity: amount,
+        request_id: requestId
       })
     });
-    if (!response.ok) {
-      return { ok: false, status: response.status === 402 ? 402 : 502, error: "quota debit failed" };
+
+    const payload = await safeJson(response);
+    if (response.status === 403) {
+      return {
+        ok: false,
+        status: 403,
+        error: stringValue(payload.reason) || "quota exhausted",
+        quota: normalizeQuota(payload),
+        requestId
+      };
     }
-    return { ok: true, status: 200, quota: normalizeQuota(await response.json()), session };
+    if (response.status === 429) {
+      return { ok: false, status: 429, error: "quota rate limited", quota: normalizeQuota(payload), requestId };
+    }
+    if (!response.ok) {
+      return { ok: false, status: 502, error: "quota check failed", quota: normalizeQuota(payload), requestId };
+    }
+
+    const quota = normalizeQuota(payload);
+    if (payload.allowed === false) {
+      return { ok: false, status: 403, error: "quota exhausted", quota, requestId };
+    }
+
+    return { ok: true, status: 200, quota, session, requestId };
   }
 
   const current = session.quotaRemaining ?? getDefaultQuota();
   if (current < amount) {
-    return { ok: false, status: 402, error: "quota exhausted", quota: { remaining: current } };
+    return { ok: false, status: 402, error: "quota exhausted", quota: { remaining: current }, requestId };
   }
 
+  return { ok: true, status: 200, quota: { remaining: current }, session, requestId };
+}
+
+export async function consumeQuotaForSession(
+  request: Request,
+  session: AuthSession,
+  amount: number,
+  requestId: string,
+  fetchImpl: typeof fetch = fetch
+): Promise<QuotaOperationResult> {
+  const externalUrl = process.env.QUOTA_API_URL;
+  if (externalUrl) {
+    if (!session.accessToken) {
+      return { ok: false, status: 401, error: "missing access token", requestId };
+    }
+
+    const response = await fetchQuotaConsume(
+      `${externalUrl.replace(/\/$/, "")}/api/quota/consume`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...quotaHeaders(session) },
+        body: JSON.stringify({
+        app: getQuotaApp(),
+        feature: getQuotaFeature(),
+          quantity: amount,
+          request_id: requestId
+        })
+      },
+      fetchImpl
+    );
+
+    const payload = await safeJson(response);
+    if (response.status === 429) {
+      return { ok: false, status: 429, error: "quota rate limited", quota: normalizeQuota(payload), requestId };
+    }
+    if (!response.ok) {
+      return { ok: false, status: 502, error: "quota consume failed", quota: normalizeQuota(payload), requestId };
+    }
+
+    return { ok: true, status: 200, quota: normalizeQuota(payload), session, requestId };
+  }
+
+  const current = session.quotaRemaining ?? getDefaultQuota();
+  if (current < amount) {
+    return { ok: false, status: 402, error: "quota exhausted", quota: { remaining: current }, requestId };
+  }
   const updatedSession = { ...session, quotaRemaining: current - amount };
   return {
     ok: true,
@@ -233,6 +314,19 @@ export async function debitQuotaForSession(
     session: updatedSession,
     setCookie: createSessionCookie(updatedSession, request)
   };
+}
+
+export async function debitQuotaForSession(
+  request: Request,
+  session: AuthSession,
+  amount: number,
+  fetchImpl: typeof fetch = fetch
+): Promise<QuotaOperationResult> {
+  const checked = await checkQuotaForSession(request, session, amount, crypto.randomUUID(), fetchImpl);
+  if (!checked.ok) {
+    return checked;
+  }
+  return consumeQuotaForSession(request, session, amount, checked.requestId!, fetchImpl);
 }
 
 export function createSessionCookie(session: AuthSession, request: Request): string {
@@ -290,17 +384,53 @@ function normalizeUser(payload: Record<string, unknown>): AuthUser {
 }
 
 function normalizeQuota(payload: unknown): QuotaStatus {
-  const record = typeof payload === "object" && payload !== null ? (payload as Record<string, unknown>) : {};
+  const quotaApp = getQuotaApp();
+  const quotaFeature = getQuotaFeature();
+  const source = Array.isArray(payload)
+    ? payload.find((item) => isQuotaRecord(item) && item.app === quotaApp && item.feature === quotaFeature) ?? payload[0]
+    : payload;
+  const record = typeof source === "object" && source !== null ? (source as Record<string, unknown>) : {};
   const remaining = numberValue(record.remaining ?? record.quotaRemaining);
   return {
     remaining: remaining ?? 0,
     limit: numberValue(record.limit),
-    resetAt: stringValue(record.resetAt)
+    used: numberValue(record.used),
+    resetAt: stringValue(record.reset_at) || stringValue(record.resetAt),
+    expiresAt: stringValue(record.expires_at) || stringValue(record.expiresAt)
   };
 }
 
-function quotaHeaders(): HeadersInit {
-  return process.env.QUOTA_API_KEY ? { Authorization: `Bearer ${process.env.QUOTA_API_KEY}` } : {};
+function quotaHeaders(session: AuthSession): HeadersInit {
+  return { Authorization: `Bearer ${session.accessToken}` };
+}
+
+function getQuotaApp(): string {
+  return process.env.MAGI_QUOTA_APP?.trim() || defaultQuotaApp;
+}
+
+function getQuotaFeature(): string {
+  return process.env.MAGI_QUOTA_FEATURE?.trim() || defaultQuotaFeature;
+}
+
+async function safeJson(response: Response): Promise<Record<string, unknown>> {
+  try {
+    const payload = await response.json();
+    return typeof payload === "object" && payload !== null ? payload as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+}
+
+async function fetchQuotaConsume(url: string, init: RequestInit, fetchImpl: typeof fetch): Promise<Response> {
+  try {
+    return await fetchImpl(url, init);
+  } catch {
+    return fetchImpl(url, init);
+  }
+}
+
+function isQuotaRecord(value: unknown): value is { app?: unknown; feature?: unknown } {
+  return typeof value === "object" && value !== null;
 }
 
 function readCookie(request: Request, name: string): string | null {

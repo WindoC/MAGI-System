@@ -44,9 +44,12 @@ $env:OAUTH_TOKEN_URL='https://identity.example.com/oauth2/token'
 $env:OAUTH_USERINFO_URL='https://identity.example.com/oauth2/userinfo'
 $env:OAUTH_REDIRECT_URI='http://localhost:3000/api/auth/callback'
 $env:OAUTH_SCOPE='openid profile email'
+$env:QUOTA_API_URL='http://localhost:8000'
+$env:MAGI_QUOTA_APP='magi-system'
+$env:MAGI_QUOTA_FEATURE='resolve'
 ```
 
-Quota endpoints are available at `GET /api/auth/quota` and `POST /api/auth/quota/debit`. Discussion routes debit one quota unit server-side before running. If `QUOTA_API_URL` is set, the server calls `${QUOTA_API_URL}/quota` and `${QUOTA_API_URL}/debit`; otherwise it uses the signed local session quota initialized from `MAGI_DEFAULT_QUOTA`.
+Quota endpoints are available locally at `GET /api/auth/quota` and `POST /api/auth/quota/debit`. When `QUOTA_API_URL` is set, quota is checked against Windo-C Accounts with the authenticated user's OAuth access token. Set `QUOTA_API_URL` to the Accounts base URL, for example `http://localhost:8000` in development or `https://accounts.windo-c.com` in production. Discussion routes call `POST /api/quota/check` before running and `POST /api/quota/consume` only after a successful run, using `MAGI_QUOTA_APP` and `MAGI_QUOTA_FEATURE` without sending a user id. Without `QUOTA_API_URL`, the app falls back to signed local session quota initialized from `MAGI_DEFAULT_QUOTA`.
 
 ## Decision Logic
 

@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  checkQuotaForSession,
   completeOAuthCallback,
+  consumeQuotaForSession,
   createOAuthLogin,
   createSessionCookie,
   debitQuotaForSession,
+  getQuotaForSession,
   publicSession,
   readSession
 } from "../src/magi/auth";
@@ -41,6 +44,7 @@ describe("auth and quota", () => {
       const sessionCookie = callback.setCookie.find((value) => value.startsWith("magi_session="));
       expect(sessionCookie).toBeTruthy();
       const session = readSession(new Request("https://magi.test", { headers: { cookie: sessionCookie!.split(";")[0] } }));
+      expect(session?.accessToken).toBe("secret-access-token");
       expect(publicSession(session)).toMatchObject({
         authenticated: true,
         user: { id: "user-1", email: "user@example.test", name: "Test User" },
@@ -105,6 +109,100 @@ describe("auth and quota", () => {
     expect(readSession(new Request("https://magi.test", { headers: { cookie } }))?.user.id).toBe("user-1");
     expect(readSession(new Request("https://magi.test", { headers: { cookie: `${cookie}tampered` } }))).toBeNull();
   });
+
+  it("reads Windo-C quota with the user access token and no subject", async () => {
+    vi.stubEnv("QUOTA_API_URL", "http://localhost:8000");
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe("http://localhost:8000/api/apps/magi-system/quota");
+      expect(init?.headers).toMatchObject({ Authorization: "Bearer user-token" });
+      return jsonResponse([
+        {
+          app: "magi-system",
+          feature: "resolve",
+          remaining: 5,
+          limit: 5,
+          used: 0,
+          reset_at: null
+        }
+      ]);
+    });
+
+    const quota = await getQuotaForSession(
+      {
+        user: { id: "user-1" },
+        accessToken: "user-token",
+        expiresAt: new Date(Date.now() + 60_000).toISOString()
+      },
+      fetchImpl as unknown as typeof fetch
+    );
+
+    expect(quota).toMatchObject({ remaining: 5, limit: 5, used: 0 });
+  });
+
+  it("checks and consumes Windo-C quota with the same request id", async () => {
+    vi.stubEnv("QUOTA_API_URL", "http://localhost:8000");
+    vi.stubEnv("MAGI_QUOTA_APP", "custom-magi");
+    vi.stubEnv("MAGI_QUOTA_FEATURE", "custom.resolve");
+    const calls: Array<{ url: string; init?: RequestInit; body: Record<string, unknown> }> = [];
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({
+        url: String(input),
+        init,
+        body: JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>
+      });
+      return jsonResponse({ allowed: true, consumed: true, remaining: 4, limit: 5, used: 1, reset_at: null });
+    });
+    const request = new Request("https://magi.test");
+    const session = {
+      user: { id: "user-1" },
+      accessToken: "user-token",
+      expiresAt: new Date(Date.now() + 60_000).toISOString()
+    };
+
+    const check = await checkQuotaForSession(request, session, 1, "request-1", fetchImpl as unknown as typeof fetch);
+    const consume = await consumeQuotaForSession(request, session, 1, check.requestId!, fetchImpl as unknown as typeof fetch);
+
+    expect(check.ok).toBe(true);
+    expect(consume.ok).toBe(true);
+    expect(calls.map((call) => call.url)).toEqual([
+      "http://localhost:8000/api/quota/check",
+      "http://localhost:8000/api/quota/consume"
+    ]);
+    expect(calls[0].init?.headers).toMatchObject({ Authorization: "Bearer user-token" });
+    expect(calls[0].body).toEqual({
+      app: "custom-magi",
+      feature: "custom.resolve",
+      quantity: 1,
+      request_id: "request-1"
+    });
+    expect(calls[0].body).not.toHaveProperty("subject");
+    expect(calls[1].body.request_id).toBe("request-1");
+  });
+
+  it("treats Windo-C 403 quota check as a hard denial", async () => {
+    vi.stubEnv("QUOTA_API_URL", "http://localhost:8000");
+    const fetchImpl = vi.fn(async () => jsonResponse(
+      { allowed: false, remaining: 0, limit: 5, used: 5, reason: "quota_exceeded" },
+      403
+    ));
+
+    await expect(checkQuotaForSession(
+      new Request("https://magi.test"),
+      {
+        user: { id: "user-1" },
+        accessToken: "user-token",
+        expiresAt: new Date(Date.now() + 60_000).toISOString()
+      },
+      1,
+      "request-1",
+      fetchImpl as unknown as typeof fetch
+    )).resolves.toMatchObject({
+      ok: false,
+      status: 403,
+      error: "quota_exceeded",
+      quota: { remaining: 0, limit: 5, used: 5 }
+    });
+  });
 });
 
 function stubOAuthEnv() {
@@ -116,9 +214,9 @@ function stubOAuthEnv() {
   vi.stubEnv("OAUTH_USERINFO_URL", "https://identity.test/userinfo");
 }
 
-function jsonResponse(payload: unknown): Response {
+function jsonResponse(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {
-    status: 200,
+    status,
     headers: { "Content-Type": "application/json" }
   });
 }
