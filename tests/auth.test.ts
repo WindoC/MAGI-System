@@ -110,6 +110,38 @@ describe("auth and quota", () => {
     expect(readSession(new Request("https://magi.test", { headers: { cookie: `${cookie}tampered` } }))).toBeNull();
   });
 
+  it("can disable SSO and return a local test session", () => {
+    vi.stubEnv("MAGI_AUTH_ENABLED", "false");
+    vi.stubEnv("MAGI_LOCAL_USER_NAME", "Developer");
+
+    expect(readSession(new Request("https://magi.test"))).toMatchObject({
+      user: { id: "local-user", name: "Developer" }
+    });
+  });
+
+  it("can disable quota without calling the external quota API", async () => {
+    vi.stubEnv("QUOTA_API_URL", "http://localhost:8000");
+    vi.stubEnv("MAGI_QUOTA_ENABLED", "false");
+    const fetchImpl = vi.fn();
+    const request = new Request("https://magi.test");
+    const session = {
+      user: { id: "user-1" },
+      accessToken: "user-token",
+      expiresAt: new Date(Date.now() + 60_000).toISOString()
+    };
+
+    await expect(getQuotaForSession(session, fetchImpl as unknown as typeof fetch)).resolves.toEqual({ remaining: null });
+    await expect(checkQuotaForSession(request, session, 1, "request-1", fetchImpl as unknown as typeof fetch)).resolves.toMatchObject({
+      ok: true,
+      quota: { remaining: null }
+    });
+    await expect(consumeQuotaForSession(request, session, 1, "request-1", fetchImpl as unknown as typeof fetch)).resolves.toMatchObject({
+      ok: true,
+      quota: { remaining: null }
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it("reads Windo-C quota with the user access token and no subject", async () => {
     vi.stubEnv("QUOTA_API_URL", "http://localhost:8000");
     const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

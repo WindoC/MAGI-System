@@ -15,6 +15,7 @@ export interface AuthSession {
 
 export interface PublicSession {
   authenticated: boolean;
+  authEnabled: boolean;
   user: AuthUser | null;
   quotaRemaining: number | null;
   expiresAt: string | null;
@@ -28,7 +29,7 @@ export interface OAuthState {
 }
 
 export interface QuotaStatus {
-  remaining: number;
+  remaining: number | null;
   limit?: number;
   resetAt?: string;
   used?: number;
@@ -53,6 +54,10 @@ const defaultQuotaApp = "magi-system";
 const defaultQuotaFeature = "resolve";
 
 export function createOAuthLogin(request: Request): { redirectUrl: string; setCookie: string } {
+  if (!isAuthEnabled()) {
+    return { redirectUrl: "/", setCookie: createSessionCookie(createLocalSession(), request) };
+  }
+
   const config = getOAuthConfig(request);
   const state = randomBase64Url(24);
   const codeVerifier = randomBase64Url(48);
@@ -154,7 +159,7 @@ export async function completeOAuthCallback(
   const session: AuthSession = {
     user: normalizeUser(userPayload),
     accessToken: tokenPayload.access_token,
-    quotaRemaining: getDefaultQuota(),
+    quotaRemaining: isExternalQuotaConfigured() || !isQuotaEnabled() ? undefined : getDefaultQuota(),
     expiresAt: new Date(Date.now() + getSessionTtlSeconds() * 1000).toISOString()
   };
 
@@ -166,6 +171,10 @@ export async function completeOAuthCallback(
 }
 
 export function readSession(request: Request): AuthSession | null {
+  if (!isAuthEnabled()) {
+    return createLocalSession();
+  }
+
   const session = readSignedJson<AuthSession>(readCookie(request, sessionCookieName));
   if (!session || !session.user?.id || new Date(session.expiresAt).getTime() <= Date.now()) {
     return null;
@@ -176,11 +185,12 @@ export function readSession(request: Request): AuthSession | null {
 
 export function publicSession(session: AuthSession | null): PublicSession {
   if (!session) {
-    return { authenticated: false, user: null, quotaRemaining: null, expiresAt: null };
+    return { authenticated: false, authEnabled: isAuthEnabled(), user: null, quotaRemaining: null, expiresAt: null };
   }
 
   return {
     authenticated: true,
+    authEnabled: isAuthEnabled(),
     user: session.user,
     quotaRemaining: session.quotaRemaining ?? null,
     expiresAt: session.expiresAt
@@ -188,6 +198,10 @@ export function publicSession(session: AuthSession | null): PublicSession {
 }
 
 export async function getQuotaForSession(session: AuthSession, fetchImpl: typeof fetch = fetch): Promise<QuotaStatus> {
+  if (!isQuotaEnabled()) {
+    return { remaining: null };
+  }
+
   const externalUrl = process.env.QUOTA_API_URL;
   if (externalUrl) {
     if (!session.accessToken) {
@@ -214,6 +228,10 @@ export async function checkQuotaForSession(
   fetchImpl: typeof fetch = fetch
 ): Promise<QuotaOperationResult> {
   const externalUrl = process.env.QUOTA_API_URL;
+  if (!isQuotaEnabled()) {
+    return { ok: true, status: 200, quota: { remaining: null }, session, requestId };
+  }
+
   if (externalUrl) {
     if (!session.accessToken) {
       return { ok: false, status: 401, error: "missing access token", requestId };
@@ -271,6 +289,10 @@ export async function consumeQuotaForSession(
   fetchImpl: typeof fetch = fetch
 ): Promise<QuotaOperationResult> {
   const externalUrl = process.env.QUOTA_API_URL;
+  if (!isQuotaEnabled()) {
+    return { ok: true, status: 200, quota: { remaining: null }, session, requestId };
+  }
+
   if (externalUrl) {
     if (!session.accessToken) {
       return { ok: false, status: 401, error: "missing access token", requestId };
@@ -282,8 +304,8 @@ export async function consumeQuotaForSession(
         method: "POST",
         headers: { "Content-Type": "application/json", ...quotaHeaders(session) },
         body: JSON.stringify({
-        app: getQuotaApp(),
-        feature: getQuotaFeature(),
+          app: getQuotaApp(),
+          feature: getQuotaFeature(),
           quantity: amount,
           request_id: requestId
         })
@@ -370,6 +392,18 @@ function getOAuthConfig(request: Request) {
   };
 }
 
+function createLocalSession(): AuthSession {
+  return {
+    user: {
+      id: process.env.MAGI_LOCAL_USER_ID?.trim() || "local-user",
+      email: process.env.MAGI_LOCAL_USER_EMAIL?.trim() || undefined,
+      name: process.env.MAGI_LOCAL_USER_NAME?.trim() || "Local User"
+    },
+    quotaRemaining: isQuotaEnabled() ? getDefaultQuota() : undefined,
+    expiresAt: new Date(Date.now() + getSessionTtlSeconds() * 1000).toISOString()
+  };
+}
+
 function normalizeUser(payload: Record<string, unknown>): AuthUser {
   const id = stringValue(payload.sub) || stringValue(payload.id) || stringValue(payload.email);
   if (!id) {
@@ -410,6 +444,18 @@ function getQuotaApp(): string {
 
 function getQuotaFeature(): string {
   return process.env.MAGI_QUOTA_FEATURE?.trim() || defaultQuotaFeature;
+}
+
+export function isAuthEnabled(): boolean {
+  return process.env.MAGI_AUTH_ENABLED !== "false";
+}
+
+export function isQuotaEnabled(): boolean {
+  return process.env.MAGI_QUOTA_ENABLED !== "false";
+}
+
+function isExternalQuotaConfigured(): boolean {
+  return Boolean(process.env.QUOTA_API_URL?.trim());
 }
 
 async function safeJson(response: Response): Promise<Record<string, unknown>> {

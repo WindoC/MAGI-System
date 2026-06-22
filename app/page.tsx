@@ -7,10 +7,11 @@ const settingsStorageKey = "magi-system:user-settings";
 
 type AuthSessionView = {
   authenticated: boolean;
+  authEnabled?: boolean;
   user: { id: string; email?: string; name?: string } | null;
   quotaRemaining: number | null;
   expiresAt: string | null;
-  quota?: { remaining: number; limit?: number; resetAt?: string };
+  quota?: { remaining: number | null; limit?: number; resetAt?: string };
 };
 
 const agentOrder: Array<{ name: AgentName; label: string; slot: string }> = [
@@ -198,6 +199,7 @@ export default function Home() {
   const t = copy[language];
   const quotaRemaining = authSession?.quota?.remaining ?? authSession?.quotaRemaining ?? null;
   const canRun = authSession?.authenticated === true && (quotaRemaining === null || quotaRemaining > 0);
+  const showAuthUi = authSession?.authEnabled !== false && authSession !== null;
 
   useEffect(() => {
     const savedSettings = readStoredSettings();
@@ -350,16 +352,18 @@ export default function Home() {
                 <span>{t.decision}</span>
                 <strong>{loading ? t.deliberating : decisionLabel(state?.final_decision?.result, language, t.standby)}</strong>
               </div>
-              <div className="auth-chip">
-                <span>{authSession?.authenticated ? t.signedIn : t.checkingAuth}</span>
-                <strong>{authSession?.user?.name || authSession?.user?.email || authSession?.user?.id || "-"}</strong>
-                <small>{t.quota}: {quotaRemaining ?? "-"}</small>
-                {authSession?.authenticated ? (
-                  <button type="button" className="chip-logout" onClick={logout} title={t.signOut}>
-                    {t.signOut}
-                  </button>
-                ) : null}
-              </div>
+              {showAuthUi ? (
+                <div className="auth-chip">
+                  <span>{authSession?.authenticated ? t.signedIn : t.checkingAuth}</span>
+                  <strong>{authSession?.user?.name || authSession?.user?.email || authSession?.user?.id || "-"}</strong>
+                  <small>{t.quota}: {quotaRemaining ?? "-"}</small>
+                  {authSession?.authenticated ? (
+                    <button type="button" className="chip-logout" onClick={logout} title={t.signOut}>
+                      {t.signOut}
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           </div>
 
@@ -417,7 +421,7 @@ export default function Home() {
           </div>
         </aside>
 
-        {!authSession?.authenticated ? (
+        {showAuthUi && !authSession?.authenticated ? (
           <div className="auth-overlay" role="dialog" aria-modal="true" aria-labelledby="auth-title">
             <section className="auth-window">
               <div className="auth-window-head">

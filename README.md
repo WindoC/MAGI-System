@@ -37,6 +37,8 @@ Required OAuth2 settings:
 
 ```powershell
 $env:SESSION_SECRET='replace-with-a-long-random-secret'
+$env:MAGI_AUTH_ENABLED='true'
+$env:MAGI_QUOTA_ENABLED='true'
 $env:OAUTH_CLIENT_ID='...'
 $env:OAUTH_CLIENT_SECRET='...'
 $env:OAUTH_AUTHORIZATION_URL='https://identity.example.com/oauth2/authorize'
@@ -49,7 +51,16 @@ $env:MAGI_QUOTA_APP='magi-system'
 $env:MAGI_QUOTA_FEATURE='resolve'
 ```
 
-Quota endpoints are available locally at `GET /api/auth/quota` and `POST /api/auth/quota/debit`. When `QUOTA_API_URL` is set, quota is checked against Windo-C Accounts with the authenticated user's OAuth access token. Set `QUOTA_API_URL` to the Accounts base URL, for example `http://localhost:8000` in development or `https://accounts.windo-c.com` in production. Discussion routes call `POST /api/quota/check` before running and `POST /api/quota/consume` only after a successful run, using `MAGI_QUOTA_APP` and `MAGI_QUOTA_FEATURE` without sending a user id. Without `QUOTA_API_URL`, the app falls back to signed local session quota initialized from `MAGI_DEFAULT_QUOTA`.
+For local-only testing without SSO or quota API calls:
+
+```powershell
+$env:MAGI_AUTH_ENABLED='false'
+$env:MAGI_QUOTA_ENABLED='false'
+```
+
+With auth disabled, the app uses a local test session. Optional local identity labels can be set with `MAGI_LOCAL_USER_ID`, `MAGI_LOCAL_USER_EMAIL`, and `MAGI_LOCAL_USER_NAME`.
+
+Quota endpoints are available locally at `GET /api/auth/quota` and `POST /api/auth/quota/debit`. When `QUOTA_API_URL` is set and `MAGI_QUOTA_ENABLED` is not `false`, quota is checked against Windo-C Accounts with the authenticated user's OAuth access token. Set `QUOTA_API_URL` to the Accounts base URL, for example `http://localhost:8000` in development or `https://accounts.windo-c.com` in production. Discussion routes call `POST /api/quota/check` before running and `POST /api/quota/consume` only after a successful run, using `MAGI_QUOTA_APP` and `MAGI_QUOTA_FEATURE` without sending a user id. Page/session refresh does not call the quota service; it returns the cached session value only. Use `GET /api/auth/quota` when the UI explicitly needs a fresh quota read. Without `QUOTA_API_URL`, the app falls back to signed local session quota initialized from `MAGI_DEFAULT_QUOTA`.
 
 ## Decision Logic
 
