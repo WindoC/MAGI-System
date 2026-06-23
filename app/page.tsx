@@ -1,9 +1,31 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { Dispatch, SetStateAction, SyntheticEvent } from "react";
 import type { AgentName, AgentOutput, MagiState, OutputLanguage, ThinkingLog } from "../src/magi/types";
 
 const settingsStorageKey = "magi-system:user-settings";
+
+type AgentConfigView = {
+  name: AgentName;
+  displayName: string;
+  role: string;
+  model: string;
+  temperature: number;
+  topP: number;
+  maxTokens: number;
+  reasoning: boolean;
+  maxToolIterations: number;
+};
+
+type AuthSessionView = {
+  authenticated: boolean;
+  authEnabled?: boolean;
+  user: { id: string; email?: string; name?: string } | null;
+  quotaRemaining: number | null;
+  expiresAt: string | null;
+  quota?: { remaining: number | null; limit?: number; resetAt?: string };
+};
 
 const agentOrder: Array<{ name: AgentName; label: string; slot: string }> = [
   { name: "balthasar", label: "BALTHASAR · 2", slot: "top" },
@@ -55,7 +77,37 @@ const copy: Record<OutputLanguage, Record<string, string>> = {
     agentErrors: "Agent errors",
     noThinking: "No raw thinking exposed by model.",
     emptyTitle: "Decision Detail Panel",
-    emptyBody: "Run a query to inspect search records, discussion rounds, persuasion messages, and hidden thinking logs."
+    emptyBody: "Run a query to inspect search records, discussion rounds, persuasion messages, and hidden thinking logs.",
+    authTitle: "Authentication Required",
+    authBody: "Sign in before using MAGI. This helps prevent abuse and keeps usage fair for everyone.",
+    signIn: "Sign in",
+    signOut: "Sign out",
+    signedIn: "Signed in",
+    quota: "Quota",
+    quotaEmpty: "Quota exhausted",
+    checkingAuth: "Checking auth",
+    about: "About",
+    aboutTitle: "About MAGI System",
+    aboutRepo: "Repository",
+    aboutAuthor: "Author",
+    aboutOpenSource: "Open Source",
+    aboutBody: "MAGI System is open-source deliberation software by WindoC.",
+    aiDisclaimerTitle: "Disclaimer",
+    aiDisclaimerBody: "The answers and viewpoints come from the models themselves. They are unrelated to this software, its developers, and its operators.",
+    dataUseTitle: "Data Use Statement",
+    dataUseBody: "We only access your email address and name for sign-in and identification. The questions you enter in this software and the responses generated for them are used to continue improving this software.",
+    authNotice: "Signing in means you agree to the disclaimer and data use statement.",
+    readAbout: "Read about",
+    modelSettings: "Model settings",
+    model: "Model",
+    temperature: "Temperature",
+    topP: "Top P",
+    maxTokens: "Max tokens",
+    reasoning: "Reasoning",
+    maxToolIterations: "Max tool iterations",
+    role: "Role",
+    enabled: "Enabled",
+    disabled: "Disabled"
   },
   "zh-TW": {
     proposal: "提訴",
@@ -100,7 +152,37 @@ const copy: Record<OutputLanguage, Record<string, string>> = {
     agentErrors: "AGENT ERROR",
     noThinking: "模型沒有輸出 raw thinking。",
     emptyTitle: "決議詳細面板",
-    emptyBody: "執行查詢後可檢視搜尋紀錄、討論回合、說服訊息與隱藏 thinking。"
+    emptyBody: "執行查詢後可檢視搜尋紀錄、討論回合、說服訊息與隱藏 thinking。",
+    authTitle: "需要登入",
+    authBody: "使用 MAGI 前請先登入。這是為了防止濫用，並確保所有使用者都能公平使用。",
+    signIn: "登入",
+    signOut: "登出",
+    signedIn: "已登入",
+    quota: "配額",
+    quotaEmpty: "配額不足",
+    checkingAuth: "確認登入",
+    about: "關於",
+    aboutTitle: "關於 MAGI System",
+    aboutRepo: "Repository",
+    aboutAuthor: "作者",
+    aboutOpenSource: "開源",
+    aboutBody: "MAGI System 是由 WindoC 製作的開源審議軟件。",
+    aiDisclaimerTitle: "免責聲明",
+    aiDisclaimerBody: "回答和觀點來源於模型本身，與本軟件、其開發人員及營運人員無關。",
+    dataUseTitle: "數據使用聲明",
+    dataUseBody: "我們只會取得你的電子郵件和名字作為登入/識別用途。你在本軟件輸入的問題和其回應會用於繼續改進本軟件。",
+    authNotice: "登入即代表你同意免責聲明和數據使用聲明。",
+    readAbout: "查看關於",
+    modelSettings: "模型設定",
+    model: "模型",
+    temperature: "Temperature",
+    topP: "Top P",
+    maxTokens: "最大 Token",
+    reasoning: "推理",
+    maxToolIterations: "最大工具迭代",
+    role: "角色",
+    enabled: "啟用",
+    disabled: "停用"
   },
   ja: {
     proposal: "提訴",
@@ -145,7 +227,37 @@ const copy: Record<OutputLanguage, Record<string, string>> = {
     agentErrors: "AGENT ERROR",
     noThinking: "モデルは raw thinking を出力していません。",
     emptyTitle: "決定詳細パネル",
-    emptyBody: "クエリを実行すると、検索履歴、議論ラウンド、説得メッセージ、非表示の thinking を確認できます。"
+    emptyBody: "クエリを実行すると、検索履歴、議論ラウンド、説得メッセージ、非表示の thinking を確認できます。",
+    authTitle: "認証が必要です",
+    authBody: "MAGI を使用する前にサインインしてください。これは不正利用を防ぎ、すべての利用者が公平に使えるようにするための措置です。",
+    signIn: "サインイン",
+    signOut: "サインアウト",
+    signedIn: "サインイン済み",
+    quota: "クォータ",
+    quotaEmpty: "クォータ不足",
+    checkingAuth: "認証確認中",
+    about: "About",
+    aboutTitle: "MAGI System について",
+    aboutRepo: "Repository",
+    aboutAuthor: "作者",
+    aboutOpenSource: "オープンソース",
+    aboutBody: "MAGI System は WindoC によるオープンソースの審議ソフトウェアです。",
+    aiDisclaimerTitle: "免責事項",
+    aiDisclaimerBody: "回答と見解はモデル自体に由来し、本ソフトウェア、その開発者、または運営者とは関係ありません。",
+    dataUseTitle: "データ利用声明",
+    dataUseBody: "メールアドレスと名前はサインインと識別のためにのみ取得します。本ソフトウェアに入力した質問とそれに対する応答は、本ソフトウェアの継続的な改善に使用されます。",
+    authNotice: "サインインすると、免責事項とデータ利用声明に同意したものとみなされます。",
+    readAbout: "About を読む",
+    modelSettings: "モデル設定",
+    model: "モデル",
+    temperature: "Temperature",
+    topP: "Top P",
+    maxTokens: "最大 Token",
+    reasoning: "推論",
+    maxToolIterations: "最大ツール反復",
+    role: "役割",
+    enabled: "有効",
+    disabled: "無効"
   }
 };
 
@@ -160,7 +272,21 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [authSession, setAuthSession] = useState<AuthSessionView | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState("");
+  const [aboutOpen, setAboutOpen] = useState(false);
+  const [agentConfigs, setAgentConfigs] = useState<AgentConfigView[]>([]);
+  const [selectedAgentConfig, setSelectedAgentConfig] = useState<AgentName | null>(null);
+  const [hasUnseenDetailUpdate, setHasUnseenDetailUpdate] = useState(false);
+  const [roundUpdateTicks, setRoundUpdateTicks] = useState<Record<number, number>>({});
+  const [seenRoundTicks, setSeenRoundTicks] = useState<Record<number, number>>({});
+  const detailActivityKeyRef = useRef<string | null>(null);
+  const roundActivityRef = useRef<Record<number, string>>({});
   const t = copy[language];
+  const quotaRemaining = authSession?.quota?.remaining ?? authSession?.quotaRemaining ?? null;
+  const canRun = authSession?.authenticated === true && (quotaRemaining === null || quotaRemaining > 0);
+  const showAuthUi = authSession?.authEnabled !== false && authSession !== null;
 
   useEffect(() => {
     const savedSettings = readStoredSettings();
@@ -190,10 +316,112 @@ export default function Home() {
     );
   }, [language, maxRounds, enableInternetSearch, settingsLoaded]);
 
+  useEffect(() => {
+    void refreshSession();
+  }, []);
+
+  useEffect(() => {
+    void refreshAgentConfigs();
+  }, []);
+
+  useEffect(() => {
+    const detailActivityKey = detailActivitySignature(state);
+    const roundActivity = roundActivitySignatures(state);
+    const previousDetailActivityKey = detailActivityKeyRef.current;
+    const previousRoundActivity = roundActivityRef.current;
+
+    detailActivityKeyRef.current = detailActivityKey;
+    roundActivityRef.current = roundActivity;
+
+    if (!detailActivityKey || previousDetailActivityKey === null || previousDetailActivityKey === detailActivityKey) {
+      return;
+    }
+
+    if (!detailOpen) {
+      setHasUnseenDetailUpdate(true);
+    }
+
+    const changedRounds = Object.entries(roundActivity)
+      .filter(([round, signature]) => previousRoundActivity[Number(round)] !== undefined && previousRoundActivity[Number(round)] !== signature)
+      .map(([round]) => Number(round));
+
+    if (changedRounds.length > 0) {
+      setRoundUpdateTicks((current) => {
+        const next = { ...current };
+        for (const round of changedRounds) {
+          next[round] = (next[round] ?? 0) + 1;
+        }
+        return next;
+      });
+    }
+  }, [detailOpen, state]);
+
+  async function refreshSession() {
+    setAuthLoading(true);
+    setAuthError("");
+    try {
+      const response = await fetch("/api/auth/session", { cache: "no-store" });
+      if (!response.ok) {
+        throw new Error("Session check failed");
+      }
+      const session = (await response.json()) as AuthSessionView;
+      setAuthSession(session);
+    } catch (err) {
+      setAuthError(err instanceof Error ? err.message : "Session check failed");
+      setAuthSession({ authenticated: false, user: null, quotaRemaining: null, expiresAt: null });
+    } finally {
+      setAuthLoading(false);
+    }
+  }
+
+  async function refreshAgentConfigs() {
+    try {
+      const response = await fetch("/api/agents", { cache: "no-store" });
+      if (!response.ok) {
+        return;
+      }
+      const payload = (await response.json()) as { agents?: AgentConfigView[] };
+      setAgentConfigs(payload.agents ?? []);
+    } catch {
+      setAgentConfigs([]);
+    }
+  }
+
+  async function refreshQuota() {
+    try {
+      const response = await fetch("/api/auth/quota", { cache: "no-store" });
+      if (!response.ok) {
+        return;
+      }
+      const payload = (await response.json()) as { quota?: AuthSessionView["quota"] };
+      if (payload.quota) {
+        setAuthSession((current) => current?.authenticated ? { ...current, quota: payload.quota } : current);
+      }
+    } catch {
+      // Keep the cached session view when the optional quota refresh fails.
+    }
+  }
+
+  async function logout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    setAuthSession({ authenticated: false, user: null, quotaRemaining: null, expiresAt: null });
+  }
+
   async function runDiscussion() {
+    if (!canRun) {
+      setError(authSession?.authenticated ? t.quotaEmpty : t.authTitle);
+      return;
+    }
+
     setLoading(true);
     setError("");
     setState(null);
+    setHasUnseenDetailUpdate(false);
+    setRoundUpdateTicks({});
+    setSeenRoundTicks({});
+    detailActivityKeyRef.current = null;
+    roundActivityRef.current = {};
+    let completed = false;
 
     try {
       const response = await fetch("/api/discussions/stream", {
@@ -250,10 +478,16 @@ export default function Home() {
           throw new Error(event.error ?? "Discussion failed");
         }
       }
+      completed = true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Discussion failed");
     } finally {
       setLoading(false);
+      if (completed) {
+        void refreshQuota();
+      } else {
+        void refreshSession();
+      }
     }
   }
 
@@ -265,21 +499,49 @@ export default function Home() {
     : loading
       ? `${t.round} ${activeRound ?? 1}`
       : "MAGI";
+  const activeAgentConfig = selectedAgentConfig
+    ? agentConfigs.find((config) => config.name === selectedAgentConfig) ?? null
+    : null;
 
   return (
     <main className="shell">
       <div className="scanlines" aria-hidden="true" />
       <section className={`workspace ${detailOpen && !detailFullscreen ? "details-open" : ""}`}>
-        <aside className="magi-console">
+        <aside className={`magi-console ${authSession?.authenticated ? "" : "auth-locked"}`}>
           <div className="console-header">
-            <div>
+            <div className="brand-block">
               <span>{t.proposal}</span>
-              <h1>MAGI System</h1>
+              <div className="brand-title-row">
+                <h1>MAGI System</h1>
+                <button
+                  type="button"
+                  className="about-icon-button"
+                  aria-label={t.about}
+                  title={t.about}
+                  onClick={() => setAboutOpen(true)}
+                >
+                  i
+                </button>
+              </div>
             </div>
-            <div>
-              <span>{t.decision}</span>
-              <strong>{loading ? t.deliberating : decisionLabel(state?.final_decision?.result, language, t.standby)}</strong>
-            </div>
+            <div className="decision-chip">
+                <span>{t.decision}</span>
+                <strong>{loading ? t.deliberating : decisionLabel(state?.final_decision?.result, language, t.standby)}</strong>
+              </div>
+              {showAuthUi ? (
+                <div className="auth-chip">
+                  <span>{authSession?.authenticated ? t.signedIn : t.checkingAuth}</span>
+                  <strong>{authSession?.user?.name || authSession?.user?.email || authSession?.user?.id || "-"}</strong>
+                  <div className="auth-actions-row">
+                    <small>{t.quota}: {quotaRemaining ?? "-"}</small>
+                    {authSession?.authenticated ? (
+                      <button type="button" className="chip-logout" onClick={logout} title={t.signOut}>
+                        {t.signOut}
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+            ) : null}
           </div>
 
           <div className={`magi-stage ${loading ? "processing" : ""}`} aria-label="MAGI agent decision status">
@@ -289,10 +551,17 @@ export default function Home() {
               const output = outputForAgent(agent.name, state);
               const status = getAgentStatus(output, loading);
               return (
-                <div className={`magi-node ${agent.slot} ${status}`} key={agent.name}>
+                <button
+                  type="button"
+                  className={`magi-node ${agent.slot} ${status}`}
+                  key={agent.name}
+                  aria-label={`${agent.label} ${t.modelSettings}`}
+                  title={t.modelSettings}
+                  onClick={() => setSelectedAgentConfig(agent.name)}
+                >
                   <span>{agent.label}</span>
                   <strong>{statusLabel(status, output, language)}</strong>
-                </div>
+                </button>
               );
             })}
           </div>
@@ -327,21 +596,169 @@ export default function Home() {
                 />
                 <span>{t.searchTool}</span>
               </label>
-              <button onClick={runDiscussion} disabled={loading || !query.trim()}>
+              <button onClick={runDiscussion} disabled={loading || !query.trim() || !canRun}>
                 {loading ? t.deliberating : t.run}
               </button>
             </div>
+            {!canRun && authSession?.authenticated ? <p className="error">{t.quotaEmpty}</p> : null}
             {error ? <p className="error">{error}</p> : null}
           </div>
         </aside>
 
+        {showAuthUi && !authSession?.authenticated ? (
+          <div className="auth-overlay" role="dialog" aria-modal="true" aria-labelledby="auth-title">
+            <section className="auth-window">
+              <div className="auth-window-head">
+                <div className="auth-title-row">
+                  <span>MAGI System</span>
+                  <button
+                    type="button"
+                    className="about-icon-button auth-about-button"
+                    aria-label={t.about}
+                    title={t.about}
+                    onClick={() => setAboutOpen(true)}
+                  >
+                    i
+                  </button>
+                </div>
+                <strong id="auth-title">{authLoading ? t.checkingAuth : t.authTitle}</strong>
+              </div>
+              <p>{t.authBody}</p>
+              <label className="auth-language field">
+                <span>{t.language}</span>
+                <select value={language} onChange={(event) => setLanguage(event.target.value as OutputLanguage)}>
+                  <option value="en">English</option>
+                  <option value="zh-TW">繁體中文</option>
+                  <option value="ja">日本語</option>
+                </select>
+              </label>
+              <p className="auth-disclaimer">
+                {t.authNotice} 
+                <button type="button" className="inline-link" onClick={() => setAboutOpen(true)}>
+                  {t.readAbout}
+                </button>
+              </p>
+              {authError ? <p className="error">{authError}</p> : null}
+              <button type="button" onClick={() => { window.location.href = "/api/auth/login"; }} disabled={authLoading}>
+                {authLoading ? t.checkingAuth : t.signIn}
+              </button>
+            </section>
+          </div>
+        ) : null}
+
+        {activeAgentConfig ? (
+          <div className="about-overlay" role="dialog" aria-modal="true" aria-labelledby="agent-config-title" onClick={() => setSelectedAgentConfig(null)}>
+            <section className="about-window agent-config-window" onClick={(event) => event.stopPropagation()}>
+              <div className="about-window-head">
+                <div>
+                  <span>{activeAgentConfig.displayName}</span>
+                  <strong id="agent-config-title">{t.modelSettings}</strong>
+                </div>
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label={t.closeDetails}
+                  title={t.closeDetails}
+                  onClick={() => setSelectedAgentConfig(null)}
+                >
+                  ×
+                </button>
+              </div>
+              <dl className="about-list agent-config-list">
+                <div>
+                  <dt>{t.model}</dt>
+                  <dd>{activeAgentConfig.model}</dd>
+                </div>
+                <div>
+                  <dt>{t.role}</dt>
+                  <dd>{activeAgentConfig.role}</dd>
+                </div>
+                <div>
+                  <dt>{t.temperature}</dt>
+                  <dd>{activeAgentConfig.temperature}</dd>
+                </div>
+                <div>
+                  <dt>{t.topP}</dt>
+                  <dd>{activeAgentConfig.topP}</dd>
+                </div>
+                <div>
+                  <dt>{t.maxTokens}</dt>
+                  <dd>{activeAgentConfig.maxTokens}</dd>
+                </div>
+                <div>
+                  <dt>{t.reasoning}</dt>
+                  <dd>{activeAgentConfig.reasoning ? t.enabled : t.disabled}</dd>
+                </div>
+                <div>
+                  <dt>{t.maxToolIterations}</dt>
+                  <dd>{activeAgentConfig.maxToolIterations}</dd>
+                </div>
+              </dl>
+            </section>
+          </div>
+        ) : null}
+
+        {aboutOpen ? (
+          <div className="about-overlay" role="dialog" aria-modal="true" aria-labelledby="about-title" onClick={() => setAboutOpen(false)}>
+            <section className="about-window" onClick={(event) => event.stopPropagation()}>
+              <div className="about-window-head">
+                <div>
+                  <span>MAGI System</span>
+                  <strong id="about-title">{t.aboutTitle}</strong>
+                </div>
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label={t.closeDetails}
+                  title={t.closeDetails}
+                  onClick={() => setAboutOpen(false)}
+                >
+                  ×
+                </button>
+              </div>
+              <p>{t.aboutBody}</p>
+              <div className="about-statements">
+                <section>
+                  <h2>{t.aiDisclaimerTitle}</h2>
+                  <p>{t.aiDisclaimerBody}</p>
+                </section>
+                <section>
+                  <h2>{t.dataUseTitle}</h2>
+                  <p>{t.dataUseBody}</p>
+                </section>
+              </div>
+              <dl className="about-list">
+                <div>
+                  <dt>{t.aboutRepo}</dt>
+                  <dd>
+                    <a href="https://github.com/WindoC/MAGI-System" target="_blank" rel="noreferrer">
+                      WindoC/MAGI-System
+                    </a>
+                  </dd>
+                </div>
+                <div>
+                  <dt>{t.aboutAuthor}</dt>
+                  <dd>WindoC</dd>
+                </div>
+                <div>
+                  <dt>{t.aboutOpenSource}</dt>
+                  <dd>MIT</dd>
+                </div>
+              </dl>
+            </section>
+          </div>
+        ) : null}
+
         {!detailOpen ? (
           <button
             type="button"
-            className="edge-toggle"
+            className={`edge-toggle ${hasUnseenDetailUpdate ? "has-update" : ""}`}
             aria-label={t.openDetails}
             title={t.openDetails}
-            onClick={() => setDetailOpen(true)}
+            onClick={() => {
+              setDetailOpen(true);
+              setHasUnseenDetailUpdate(false);
+            }}
           >
             {"<"}
           </button>
@@ -426,7 +843,11 @@ export default function Home() {
                 <details className="drawer" open>
                   <summary>{t.rounds}</summary>
                   {state.discussion_history.map((round) => (
-                    <details className="round-drawer" key={round.round}>
+                    <details
+                      className={`round-drawer ${hasUnseenRoundUpdate(round.round, roundUpdateTicks, seenRoundTicks) ? "has-update" : ""}`}
+                      key={round.round}
+                      onToggle={(event) => markRoundSeenOnOpen(event, round.round, roundUpdateTicks, setSeenRoundTicks)}
+                    >
                       <summary>{t.round} {round.round}</summary>
                       <div className="agents">
                         {round.agent_outputs.map((output) => {
@@ -439,7 +860,13 @@ export default function Home() {
                     </details>
                   ))}
                   {state.pending_round_snapshot && state.pending_agent_outputs && state.pending_agent_outputs.length > 0 ? (
-                    <details className="round-drawer" open>
+                    <details
+                      className={`round-drawer ${hasUnseenRoundUpdate(state.pending_round_snapshot.round, roundUpdateTicks, seenRoundTicks) ? "has-update" : ""}`}
+                      open
+                      onToggle={(event) =>
+                        markRoundSeenOnOpen(event, state.pending_round_snapshot?.round ?? 0, roundUpdateTicks, setSeenRoundTicks)
+                      }
+                    >
                       <summary>{t.round} {state.pending_round_snapshot.round} · {t.processing}</summary>
                       <div className="agents">
                         {state.pending_agent_outputs.map((output) => {
@@ -474,6 +901,78 @@ export default function Home() {
 
 function thinkingFor(thinkingLog: ThinkingLog[] | undefined, round: number, output: AgentOutput): ThinkingLog[] {
   return (thinkingLog ?? []).filter((entry) => entry.round === round && entry.agent === output.agent);
+}
+
+function detailActivitySignature(state: MagiState | null): string | null {
+  if (!state) {
+    return null;
+  }
+
+  return JSON.stringify({
+    final: state.final_decision,
+    tools: [...(state.tool_history ?? []), ...(state.pending_tool_results ?? [])].map((entry) => [
+      entry.round,
+      entry.requestingAgent,
+      entry.request.query,
+      entry.results.length
+    ]),
+    rounds: roundActivitySignatures(state),
+    thinking: [...(state.thinking_log ?? []), ...(state.pending_thinking_log ?? [])].map((entry) => [
+      entry.round,
+      entry.agent,
+      entry.iteration,
+      entry.phase,
+      entry.thinking
+    ])
+  });
+}
+
+function roundActivitySignatures(state: MagiState | null): Record<number, string> {
+  const signatures: Record<number, string> = {};
+  if (!state) {
+    return signatures;
+  }
+
+  for (const round of state.discussion_history ?? []) {
+    signatures[round.round] = JSON.stringify({
+      outputs: round.agent_outputs,
+      tools: (state.tool_history ?? []).filter((entry) => entry.round === round.round),
+      thinking: (state.thinking_log ?? []).filter((entry) => entry.round === round.round)
+    });
+  }
+
+  const pendingRound = state.pending_round_snapshot?.round;
+  if (pendingRound && state.pending_agent_outputs && state.pending_agent_outputs.length > 0) {
+    signatures[pendingRound] = JSON.stringify({
+      outputs: state.pending_agent_outputs,
+      tools: state.pending_tool_results ?? [],
+      thinking: state.pending_thinking_log ?? []
+    });
+  }
+
+  return signatures;
+}
+
+function hasUnseenRoundUpdate(round: number, updateTicks: Record<number, number>, seenTicks: Record<number, number>): boolean {
+  return (updateTicks[round] ?? 0) > (seenTicks[round] ?? 0);
+}
+
+function markRoundSeenOnOpen(
+  event: SyntheticEvent<HTMLDetailsElement>,
+  round: number,
+  updateTicks: Record<number, number>,
+  setSeenTicks: Dispatch<SetStateAction<Record<number, number>>>
+) {
+  if (!event.currentTarget.open || round <= 0) {
+    return;
+  }
+
+  const latestTick = updateTicks[round] ?? 0;
+  if (latestTick === 0) {
+    return;
+  }
+
+  setSeenTicks((current) => ({ ...current, [round]: latestTick }));
 }
 
 function mergeMagiUiState(previous: MagiState | null, incoming: MagiState): MagiState {
@@ -794,3 +1293,18 @@ function finalSummaryText(finalDecision: MagiState["final_decision"], labels: Re
     .replace("{rounds}", String(finalDecision.round_count))
     .replace("{result}", result);
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
