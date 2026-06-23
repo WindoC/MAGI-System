@@ -67,13 +67,25 @@ const copy: Record<OutputLanguage, Record<string, string>> = {
     emptyTitle: "Decision Detail Panel",
     emptyBody: "Run a query to inspect search records, discussion rounds, persuasion messages, and hidden thinking logs.",
     authTitle: "Authentication Required",
-    authBody: "Sign in through the OAuth2 identity system before using MAGI.",
+    authBody: "Sign in before using MAGI. This helps prevent abuse and keeps usage fair for everyone.",
     signIn: "Sign in",
     signOut: "Sign out",
     signedIn: "Signed in",
     quota: "Quota",
     quotaEmpty: "Quota exhausted",
-    checkingAuth: "Checking auth"
+    checkingAuth: "Checking auth",
+    about: "About",
+    aboutTitle: "About MAGI System",
+    aboutRepo: "Repository",
+    aboutAuthor: "Author",
+    aboutOpenSource: "Open Source",
+    aboutBody: "MAGI System is open-source deliberation software by WindoC.",
+    aiDisclaimerTitle: "Disclaimer",
+    aiDisclaimerBody: "The answers and viewpoints come from the models themselves. They are unrelated to this software, its developers, and its operators.",
+    dataUseTitle: "Data Use Statement",
+    dataUseBody: "We only access your email address and name for sign-in and identification. The questions you enter in this software and the responses generated for them are used to continue improving this software.",
+    authNotice: "Signing in means you agree to the disclaimer and data use statement.",
+    readAbout: "Read about"
   },
   "zh-TW": {
     proposal: "提訴",
@@ -120,13 +132,25 @@ const copy: Record<OutputLanguage, Record<string, string>> = {
     emptyTitle: "決議詳細面板",
     emptyBody: "執行查詢後可檢視搜尋紀錄、討論回合、說服訊息與隱藏 thinking。",
     authTitle: "需要登入",
-    authBody: "使用 MAGI 前必須先透過 OAuth2 認證系統登入。",
+    authBody: "使用 MAGI 前請先登入。這是為了防止濫用，並確保所有使用者都能公平使用。",
     signIn: "登入",
     signOut: "登出",
     signedIn: "已登入",
     quota: "配額",
     quotaEmpty: "配額不足",
-    checkingAuth: "確認登入"
+    checkingAuth: "確認登入",
+    about: "關於",
+    aboutTitle: "關於 MAGI System",
+    aboutRepo: "Repository",
+    aboutAuthor: "作者",
+    aboutOpenSource: "開源",
+    aboutBody: "MAGI System 是由 WindoC 製作的開源審議軟件。",
+    aiDisclaimerTitle: "免責聲明",
+    aiDisclaimerBody: "回答和觀點來源於模型本身，與本軟件、其開發人員及營運人員無關。",
+    dataUseTitle: "數據使用聲明",
+    dataUseBody: "我們只會取得你的電子郵件和名字作為登入/識別用途。你在本軟件輸入的問題和其回應會用於繼續改進本軟件。",
+    authNotice: "登入即代表你同意免責聲明和數據使用聲明。",
+    readAbout: "查看關於"
   },
   ja: {
     proposal: "提訴",
@@ -173,13 +197,25 @@ const copy: Record<OutputLanguage, Record<string, string>> = {
     emptyTitle: "決定詳細パネル",
     emptyBody: "クエリを実行すると、検索履歴、議論ラウンド、説得メッセージ、非表示の thinking を確認できます。",
     authTitle: "認証が必要です",
-    authBody: "MAGI を使用する前に OAuth2 認証システムでサインインしてください。",
+    authBody: "MAGI を使用する前にサインインしてください。これは不正利用を防ぎ、すべての利用者が公平に使えるようにするための措置です。",
     signIn: "サインイン",
     signOut: "サインアウト",
     signedIn: "サインイン済み",
     quota: "クォータ",
     quotaEmpty: "クォータ不足",
-    checkingAuth: "認証確認中"
+    checkingAuth: "認証確認中",
+    about: "About",
+    aboutTitle: "MAGI System について",
+    aboutRepo: "Repository",
+    aboutAuthor: "作者",
+    aboutOpenSource: "オープンソース",
+    aboutBody: "MAGI System は WindoC によるオープンソースの審議ソフトウェアです。",
+    aiDisclaimerTitle: "免責事項",
+    aiDisclaimerBody: "回答と見解はモデル自体に由来し、本ソフトウェア、その開発者、または運営者とは関係ありません。",
+    dataUseTitle: "データ利用声明",
+    dataUseBody: "メールアドレスと名前はサインインと識別のためにのみ取得します。本ソフトウェアに入力した質問とそれに対する応答は、本ソフトウェアの継続的な改善に使用されます。",
+    authNotice: "サインインすると、免責事項とデータ利用声明に同意したものとみなされます。",
+    readAbout: "About を読む"
   }
 };
 
@@ -197,6 +233,7 @@ export default function Home() {
   const [authSession, setAuthSession] = useState<AuthSessionView | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState("");
+  const [aboutOpen, setAboutOpen] = useState(false);
   const [hasUnseenDetailUpdate, setHasUnseenDetailUpdate] = useState(false);
   const [roundUpdateTicks, setRoundUpdateTicks] = useState<Record<number, number>>({});
   const [seenRoundTicks, setSeenRoundTicks] = useState<Record<number, number>>({});
@@ -408,9 +445,20 @@ export default function Home() {
       <section className={`workspace ${detailOpen && !detailFullscreen ? "details-open" : ""}`}>
         <aside className={`magi-console ${authSession?.authenticated ? "" : "auth-locked"}`}>
           <div className="console-header">
-            <div>
+            <div className="brand-block">
               <span>{t.proposal}</span>
-              <h1>MAGI System</h1>
+              <div className="brand-title-row">
+                <h1>MAGI System</h1>
+                <button
+                  type="button"
+                  className="icon-button about-button"
+                  aria-label={t.about}
+                  title={t.about}
+                  onClick={() => setAboutOpen(true)}
+                >
+                  i
+                </button>
+              </div>
             </div>
             <div className="console-status">
               <div className="decision-chip">
@@ -490,14 +538,81 @@ export default function Home() {
           <div className="auth-overlay" role="dialog" aria-modal="true" aria-labelledby="auth-title">
             <section className="auth-window">
               <div className="auth-window-head">
-                <span>MAGI System</span>
+                <div className="auth-title-row">
+                  <span>MAGI System</span>
+                </div>
                 <strong id="auth-title">{authLoading ? t.checkingAuth : t.authTitle}</strong>
               </div>
               <p>{t.authBody}</p>
+              <label className="auth-language field">
+                <span>{t.language}</span>
+                <select value={language} onChange={(event) => setLanguage(event.target.value as OutputLanguage)}>
+                  <option value="en">English</option>
+                  <option value="zh-TW">繁體中文</option>
+                  <option value="ja">日本語</option>
+                </select>
+              </label>
+              <p className="auth-disclaimer">
+                {t.authNotice} 
+                <button type="button" className="inline-link" onClick={() => setAboutOpen(true)}>
+                  {t.readAbout}
+                </button>
+              </p>
               {authError ? <p className="error">{authError}</p> : null}
               <button type="button" onClick={() => { window.location.href = "/api/auth/login"; }} disabled={authLoading}>
                 {authLoading ? t.checkingAuth : t.signIn}
               </button>
+            </section>
+          </div>
+        ) : null}
+
+        {aboutOpen ? (
+          <div className="about-overlay" role="dialog" aria-modal="true" aria-labelledby="about-title" onClick={() => setAboutOpen(false)}>
+            <section className="about-window" onClick={(event) => event.stopPropagation()}>
+              <div className="about-window-head">
+                <div>
+                  <span>MAGI System</span>
+                  <strong id="about-title">{t.aboutTitle}</strong>
+                </div>
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label={t.closeDetails}
+                  title={t.closeDetails}
+                  onClick={() => setAboutOpen(false)}
+                >
+                  ×
+                </button>
+              </div>
+              <p>{t.aboutBody}</p>
+              <div className="about-statements">
+                <section>
+                  <h2>{t.aiDisclaimerTitle}</h2>
+                  <p>{t.aiDisclaimerBody}</p>
+                </section>
+                <section>
+                  <h2>{t.dataUseTitle}</h2>
+                  <p>{t.dataUseBody}</p>
+                </section>
+              </div>
+              <dl className="about-list">
+                <div>
+                  <dt>{t.aboutRepo}</dt>
+                  <dd>
+                    <a href="https://github.com/WindoC/MAGI-System" target="_blank" rel="noreferrer">
+                      WindoC/MAGI-System
+                    </a>
+                  </dd>
+                </div>
+                <div>
+                  <dt>{t.aboutAuthor}</dt>
+                  <dd>WindoC</dd>
+                </div>
+                <div>
+                  <dt>{t.aboutOpenSource}</dt>
+                  <dd>MIT</dd>
+                </div>
+              </dl>
             </section>
           </div>
         ) : null}
@@ -1046,3 +1161,10 @@ function finalSummaryText(finalDecision: MagiState["final_decision"], labels: Re
     .replace("{rounds}", String(finalDecision.round_count))
     .replace("{result}", result);
 }
+
+
+
+
+
+
+
