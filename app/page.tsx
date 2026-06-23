@@ -6,6 +6,18 @@ import type { AgentName, AgentOutput, MagiState, OutputLanguage, ThinkingLog } f
 
 const settingsStorageKey = "magi-system:user-settings";
 
+type AgentConfigView = {
+  name: AgentName;
+  displayName: string;
+  role: string;
+  model: string;
+  temperature: number;
+  topP: number;
+  maxTokens: number;
+  reasoning: boolean;
+  maxToolIterations: number;
+};
+
 type AuthSessionView = {
   authenticated: boolean;
   authEnabled?: boolean;
@@ -85,7 +97,17 @@ const copy: Record<OutputLanguage, Record<string, string>> = {
     dataUseTitle: "Data Use Statement",
     dataUseBody: "We only access your email address and name for sign-in and identification. The questions you enter in this software and the responses generated for them are used to continue improving this software.",
     authNotice: "Signing in means you agree to the disclaimer and data use statement.",
-    readAbout: "Read about"
+    readAbout: "Read about",
+    modelSettings: "Model settings",
+    model: "Model",
+    temperature: "Temperature",
+    topP: "Top P",
+    maxTokens: "Max tokens",
+    reasoning: "Reasoning",
+    maxToolIterations: "Max tool iterations",
+    role: "Role",
+    enabled: "Enabled",
+    disabled: "Disabled"
   },
   "zh-TW": {
     proposal: "提訴",
@@ -150,7 +172,17 @@ const copy: Record<OutputLanguage, Record<string, string>> = {
     dataUseTitle: "數據使用聲明",
     dataUseBody: "我們只會取得你的電子郵件和名字作為登入/識別用途。你在本軟件輸入的問題和其回應會用於繼續改進本軟件。",
     authNotice: "登入即代表你同意免責聲明和數據使用聲明。",
-    readAbout: "查看關於"
+    readAbout: "查看關於",
+    modelSettings: "模型設定",
+    model: "模型",
+    temperature: "Temperature",
+    topP: "Top P",
+    maxTokens: "最大 Token",
+    reasoning: "推理",
+    maxToolIterations: "最大工具迭代",
+    role: "角色",
+    enabled: "啟用",
+    disabled: "停用"
   },
   ja: {
     proposal: "提訴",
@@ -215,7 +247,17 @@ const copy: Record<OutputLanguage, Record<string, string>> = {
     dataUseTitle: "データ利用声明",
     dataUseBody: "メールアドレスと名前はサインインと識別のためにのみ取得します。本ソフトウェアに入力した質問とそれに対する応答は、本ソフトウェアの継続的な改善に使用されます。",
     authNotice: "サインインすると、免責事項とデータ利用声明に同意したものとみなされます。",
-    readAbout: "About を読む"
+    readAbout: "About を読む",
+    modelSettings: "モデル設定",
+    model: "モデル",
+    temperature: "Temperature",
+    topP: "Top P",
+    maxTokens: "最大 Token",
+    reasoning: "推論",
+    maxToolIterations: "最大ツール反復",
+    role: "役割",
+    enabled: "有効",
+    disabled: "無効"
   }
 };
 
@@ -234,6 +276,8 @@ export default function Home() {
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState("");
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [agentConfigs, setAgentConfigs] = useState<AgentConfigView[]>([]);
+  const [selectedAgentConfig, setSelectedAgentConfig] = useState<AgentName | null>(null);
   const [hasUnseenDetailUpdate, setHasUnseenDetailUpdate] = useState(false);
   const [roundUpdateTicks, setRoundUpdateTicks] = useState<Record<number, number>>({});
   const [seenRoundTicks, setSeenRoundTicks] = useState<Record<number, number>>({});
@@ -274,6 +318,10 @@ export default function Home() {
 
   useEffect(() => {
     void refreshSession();
+  }, []);
+
+  useEffect(() => {
+    void refreshAgentConfigs();
   }, []);
 
   useEffect(() => {
@@ -323,6 +371,19 @@ export default function Home() {
       setAuthSession({ authenticated: false, user: null, quotaRemaining: null, expiresAt: null });
     } finally {
       setAuthLoading(false);
+    }
+  }
+
+  async function refreshAgentConfigs() {
+    try {
+      const response = await fetch("/api/agents", { cache: "no-store" });
+      if (!response.ok) {
+        return;
+      }
+      const payload = (await response.json()) as { agents?: AgentConfigView[] };
+      setAgentConfigs(payload.agents ?? []);
+    } catch {
+      setAgentConfigs([]);
     }
   }
 
@@ -438,6 +499,9 @@ export default function Home() {
     : loading
       ? `${t.round} ${activeRound ?? 1}`
       : "MAGI";
+  const activeAgentConfig = selectedAgentConfig
+    ? agentConfigs.find((config) => config.name === selectedAgentConfig) ?? null
+    : null;
 
   return (
     <main className="shell">
@@ -451,7 +515,7 @@ export default function Home() {
                 <h1>MAGI System</h1>
                 <button
                   type="button"
-                  className="icon-button about-button"
+                  className="about-icon-button"
                   aria-label={t.about}
                   title={t.about}
                   onClick={() => setAboutOpen(true)}
@@ -460,8 +524,7 @@ export default function Home() {
                 </button>
               </div>
             </div>
-            <div className="console-status">
-              <div className="decision-chip">
+            <div className="decision-chip">
                 <span>{t.decision}</span>
                 <strong>{loading ? t.deliberating : decisionLabel(state?.final_decision?.result, language, t.standby)}</strong>
               </div>
@@ -469,15 +532,16 @@ export default function Home() {
                 <div className="auth-chip">
                   <span>{authSession?.authenticated ? t.signedIn : t.checkingAuth}</span>
                   <strong>{authSession?.user?.name || authSession?.user?.email || authSession?.user?.id || "-"}</strong>
-                  <small>{t.quota}: {quotaRemaining ?? "-"}</small>
-                  {authSession?.authenticated ? (
-                    <button type="button" className="chip-logout" onClick={logout} title={t.signOut}>
-                      {t.signOut}
-                    </button>
-                  ) : null}
+                  <div className="auth-actions-row">
+                    <small>{t.quota}: {quotaRemaining ?? "-"}</small>
+                    {authSession?.authenticated ? (
+                      <button type="button" className="chip-logout" onClick={logout} title={t.signOut}>
+                        {t.signOut}
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
-              ) : null}
-            </div>
+            ) : null}
           </div>
 
           <div className={`magi-stage ${loading ? "processing" : ""}`} aria-label="MAGI agent decision status">
@@ -487,10 +551,17 @@ export default function Home() {
               const output = outputForAgent(agent.name, state);
               const status = getAgentStatus(output, loading);
               return (
-                <div className={`magi-node ${agent.slot} ${status}`} key={agent.name}>
+                <button
+                  type="button"
+                  className={`magi-node ${agent.slot} ${status}`}
+                  key={agent.name}
+                  aria-label={`${agent.label} ${t.modelSettings}`}
+                  title={t.modelSettings}
+                  onClick={() => setSelectedAgentConfig(agent.name)}
+                >
                   <span>{agent.label}</span>
                   <strong>{statusLabel(status, output, language)}</strong>
-                </div>
+                </button>
               );
             })}
           </div>
@@ -540,6 +611,15 @@ export default function Home() {
               <div className="auth-window-head">
                 <div className="auth-title-row">
                   <span>MAGI System</span>
+                  <button
+                    type="button"
+                    className="about-icon-button auth-about-button"
+                    aria-label={t.about}
+                    title={t.about}
+                    onClick={() => setAboutOpen(true)}
+                  >
+                    i
+                  </button>
                 </div>
                 <strong id="auth-title">{authLoading ? t.checkingAuth : t.authTitle}</strong>
               </div>
@@ -562,6 +642,58 @@ export default function Home() {
               <button type="button" onClick={() => { window.location.href = "/api/auth/login"; }} disabled={authLoading}>
                 {authLoading ? t.checkingAuth : t.signIn}
               </button>
+            </section>
+          </div>
+        ) : null}
+
+        {activeAgentConfig ? (
+          <div className="about-overlay" role="dialog" aria-modal="true" aria-labelledby="agent-config-title" onClick={() => setSelectedAgentConfig(null)}>
+            <section className="about-window agent-config-window" onClick={(event) => event.stopPropagation()}>
+              <div className="about-window-head">
+                <div>
+                  <span>{activeAgentConfig.displayName}</span>
+                  <strong id="agent-config-title">{t.modelSettings}</strong>
+                </div>
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label={t.closeDetails}
+                  title={t.closeDetails}
+                  onClick={() => setSelectedAgentConfig(null)}
+                >
+                  ×
+                </button>
+              </div>
+              <dl className="about-list agent-config-list">
+                <div>
+                  <dt>{t.model}</dt>
+                  <dd>{activeAgentConfig.model}</dd>
+                </div>
+                <div>
+                  <dt>{t.role}</dt>
+                  <dd>{activeAgentConfig.role}</dd>
+                </div>
+                <div>
+                  <dt>{t.temperature}</dt>
+                  <dd>{activeAgentConfig.temperature}</dd>
+                </div>
+                <div>
+                  <dt>{t.topP}</dt>
+                  <dd>{activeAgentConfig.topP}</dd>
+                </div>
+                <div>
+                  <dt>{t.maxTokens}</dt>
+                  <dd>{activeAgentConfig.maxTokens}</dd>
+                </div>
+                <div>
+                  <dt>{t.reasoning}</dt>
+                  <dd>{activeAgentConfig.reasoning ? t.enabled : t.disabled}</dd>
+                </div>
+                <div>
+                  <dt>{t.maxToolIterations}</dt>
+                  <dd>{activeAgentConfig.maxToolIterations}</dd>
+                </div>
+              </dl>
             </section>
           </div>
         ) : null}
@@ -1161,6 +1293,14 @@ function finalSummaryText(finalDecision: MagiState["final_decision"], labels: Re
     .replace("{rounds}", String(finalDecision.round_count))
     .replace("{result}", result);
 }
+
+
+
+
+
+
+
+
 
 
 
