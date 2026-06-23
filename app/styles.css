@@ -960,37 +960,65 @@ pre {
   }
 }
 
-@media (max-width: 700px) {
-  .magi-console {
-    grid-template-rows: auto minmax(230px, 1fr) auto;
-  }
-
+@media (max-width: 550px) {
   .console-header {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 8px;
   }
 
-  .decision-chip,
-  .auth-chip {
-    justify-self: start;
-    text-align: left;
+  .console-header span {
+    font-size: 20px;
+  }
+
+  .console-header h1,
+  .console-header strong {
+    margin-top: 4px;
+    font-size: 11px;
+  }
+
+  .brand-title-row {
+    gap: 5px;
+  }
+
+  .about-icon-button {
+    width: 20px;
+    min-height: 20px;
+    font-size: 12px;
+  }
+
+  .decision-chip {
+    min-width: 72px;
   }
 
   .auth-chip {
-    border-left: 0;
-    border-top: 2px solid #f36c12;
-    padding-left: 0;
-    padding-top: 10px;
-    text-align: left;
+    min-width: 112px;
+    padding-left: 8px;
   }
 
   .auth-actions-row {
-    justify-content: flex-start;
+    gap: 6px;
+    margin-top: 4px;
+  }
+
+  .auth-chip small {
+    font-size: 10px;
+  }
+
+  .chip-logout {
+    min-height: 24px;
+    padding: 0 7px;
+    font-size: 10px;
+  }
+
+  .magi-console {
+    grid-template-rows: auto minmax(230px, 1fr) auto;
   }
 
   .control-grid {
     grid-template-columns: minmax(0, 1fr) 82px;
   }
 }
+
 @media (min-width: 1800px) {
   .magi-console {
     grid-template-rows: auto minmax(520px, 1fr) auto;
@@ -1292,6 +1320,11 @@ pre {
   background: #5fcfff;
   color: #050606;
 }
+
+
+
+
+
 
 
 
