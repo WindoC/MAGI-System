@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { completeOAuthCallback, createPostAuthRedirectUrl } from "../../../../src/magi/auth";
+import { completeOAuthCallback, createPostAuthRedirectPath } from "../../../../src/magi/auth";
 
 export async function GET(request: Request) {
   try {
@@ -12,7 +12,10 @@ export async function GET(request: Request) {
       return response;
     }
 
-    const response = NextResponse.redirect(createPostAuthRedirectUrl(result.redirectUrl, request));
+    const response = new NextResponse(null, {
+      status: 307,
+      headers: { Location: createPostAuthRedirectPath(result.redirectUrl) }
+    });
     for (const cookie of result.setCookie) {
       response.headers.append("Set-Cookie", cookie);
     }

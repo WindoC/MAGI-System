@@ -375,8 +375,8 @@ export function clearSessionCookie(request: Request): string {
   return clearCookie(sessionCookieName, request);
 }
 
-export function createPostAuthRedirectUrl(redirectUrl: string, request: Request): URL {
-  return new URL(safeReturnTo(redirectUrl), getPublicOrigin(request));
+export function createPostAuthRedirectPath(redirectUrl: string): string {
+  return safeReturnTo(redirectUrl);
 }
 
 export function authError(status: 401 | 402, error: string): { status: number; payload: { error: string } } {

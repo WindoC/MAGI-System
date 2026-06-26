@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   checkQuotaForSession,
   completeOAuthCallback,
-  createPostAuthRedirectUrl,
+  createPostAuthRedirectPath,
   consumeQuotaForSession,
   createOAuthLogin,
   createSessionCookie,
@@ -97,14 +97,10 @@ describe("auth and quota", () => {
     }
   });
 
-  it("builds post-auth redirects from the configured public OAuth origin", () => {
-    vi.stubEnv("OAUTH_REDIRECT_URI", "https://magi-system.windo-c.com/api/auth/callback");
-    const redirect = createPostAuthRedirectUrl(
-      "/",
-      new Request("https://localhost:3000/api/auth/callback")
-    );
-
-    expect(redirect.toString()).toBe("https://magi-system.windo-c.com/");
+  it("builds post-auth redirects as internal paths", () => {
+    expect(createPostAuthRedirectPath("/")).toBe("/");
+    expect(createPostAuthRedirectPath("/private?tab=usage#quota")).toBe("/private?tab=usage#quota");
+    expect(createPostAuthRedirectPath("https://localhost:3000/")).toBe("/");
   });
 
   it("builds OAuth redirect_uri from forwarded proxy headers when no callback URL is configured", () => {
