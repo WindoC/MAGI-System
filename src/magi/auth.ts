@@ -64,7 +64,7 @@ export function createOAuthLogin(request: Request): { redirectUrl: string; setCo
   const codeVerifier = randomBase64Url(48);
   const codeChallenge = base64Url(crypto.createHash("sha256").update(codeVerifier).digest());
   const requestUrl = new URL(request.url);
-  const returnTo = requestUrl.searchParams.get("returnTo") || "/";
+  const returnTo = safeReturnTo(requestUrl.searchParams.get("returnTo"));
   const oauthState: OAuthState = {
     state,
     codeVerifier,
@@ -426,6 +426,19 @@ function normalizeUser(payload: Record<string, unknown>): AuthUser {
     email: stringValue(payload.email),
     name: stringValue(payload.name) || stringValue(payload.preferred_username)
   };
+}
+
+function safeReturnTo(value: string | null): string {
+  if (!value || !value.startsWith("/") || value.startsWith("//")) {
+    return "/";
+  }
+
+  try {
+    const parsed = new URL(value, "https://magi.local");
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return "/";
+  }
 }
 
 function normalizeQuota(payload: unknown): QuotaStatus {

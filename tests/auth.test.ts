@@ -67,6 +67,35 @@ describe("auth and quota", () => {
     expect(result).toMatchObject({ ok: false, status: 400, error: "invalid oauth state" });
   });
 
+  it("does not allow OAuth returnTo to redirect to an absolute URL", async () => {
+    stubOAuthEnv();
+    const login = createOAuthLogin(new Request("https://magi.test/api/auth/login?returnTo=http://localhost:3000/"));
+    const redirect = new URL(login.redirectUrl);
+    const cookie = login.setCookie.split(";")[0];
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "https://identity.test/token") {
+        return jsonResponse({ access_token: "secret-access-token", expires_in: 3600 });
+      }
+      if (url === "https://identity.test/userinfo") {
+        return jsonResponse({ sub: "user-1", email: "user@example.test", name: "Test User" });
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    });
+
+    const callback = await completeOAuthCallback(
+      new Request(`https://magi.test/api/auth/callback?code=abc&state=${redirect.searchParams.get("state")}`, {
+        headers: { cookie }
+      }),
+      fetchImpl as unknown as typeof fetch
+    );
+
+    expect(callback.ok).toBe(true);
+    if (callback.ok) {
+      expect(callback.redirectUrl).toBe("/");
+    }
+  });
+
   it("caches external quota in the encrypted session after OAuth login", async () => {
     stubOAuthEnv();
     vi.stubEnv("QUOTA_API_URL", "https://quota.test");
