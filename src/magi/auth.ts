@@ -375,12 +375,16 @@ export function clearSessionCookie(request: Request): string {
   return clearCookie(sessionCookieName, request);
 }
 
+export function createPostAuthRedirectUrl(redirectUrl: string, request: Request): URL {
+  return new URL(safeReturnTo(redirectUrl), getPublicOrigin(request));
+}
+
 export function authError(status: 401 | 402, error: string): { status: number; payload: { error: string } } {
   return { status, payload: { error } };
 }
 
 function getOAuthConfig(request: Request) {
-  const origin = new URL(request.url).origin;
+  const origin = getPublicOrigin(request);
   const clientId = process.env.OAUTH_CLIENT_ID;
   const clientSecret = process.env.OAUTH_CLIENT_SECRET;
   const authorizationUrl = process.env.OAUTH_AUTHORIZATION_URL;
@@ -438,6 +442,71 @@ function safeReturnTo(value: string | null): string {
     return `${parsed.pathname}${parsed.search}${parsed.hash}`;
   } catch {
     return "/";
+  }
+}
+
+function getPublicOrigin(request: Request): string {
+  const configuredOrigin = getConfiguredPublicOrigin();
+  if (configuredOrigin) {
+    return configuredOrigin;
+  }
+
+  const forwardedHost = firstForwardedValue(request.headers.get("x-forwarded-host"));
+  if (forwardedHost) {
+    const forwardedProto = firstForwardedValue(request.headers.get("x-forwarded-proto")) ?? new URL(request.url).protocol.replace(/:$/u, "");
+    const forwardedOrigin = normalizeOrigin(`${forwardedProto}://${forwardedHost}`);
+    if (forwardedOrigin) {
+      return forwardedOrigin;
+    }
+  }
+
+  const host = request.headers.get("host");
+  if (host) {
+    const protocol = new URL(request.url).protocol.replace(/:$/u, "");
+    const hostOrigin = normalizeOrigin(`${protocol}://${host}`);
+    if (hostOrigin) {
+      return hostOrigin;
+    }
+  }
+
+  return new URL(request.url).origin;
+}
+
+function getConfiguredPublicOrigin(): string | null {
+  const candidates = [
+    process.env.MAGI_PUBLIC_ORIGIN,
+    process.env.APP_URL,
+    process.env.NEXT_PUBLIC_APP_URL,
+    process.env.OAUTH_REDIRECT_URI
+  ];
+
+  for (const candidate of candidates) {
+    const origin = normalizeOrigin(candidate);
+    if (origin) {
+      return origin;
+    }
+  }
+
+  return null;
+}
+
+function firstForwardedValue(value: string | null): string | null {
+  return value?.split(",")[0]?.trim() || null;
+}
+
+function normalizeOrigin(value: string | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const url = new URL(value.trim());
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return null;
+    }
+    return url.origin;
+  } catch {
+    return null;
   }
 }
 

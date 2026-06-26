@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   checkQuotaForSession,
   completeOAuthCallback,
+  createPostAuthRedirectUrl,
   consumeQuotaForSession,
   createOAuthLogin,
   createSessionCookie,
@@ -94,6 +95,30 @@ describe("auth and quota", () => {
     if (callback.ok) {
       expect(callback.redirectUrl).toBe("/");
     }
+  });
+
+  it("builds post-auth redirects from the configured public OAuth origin", () => {
+    vi.stubEnv("OAUTH_REDIRECT_URI", "https://magi-system.windo-c.com/api/auth/callback");
+    const redirect = createPostAuthRedirectUrl(
+      "/",
+      new Request("https://localhost:3000/api/auth/callback")
+    );
+
+    expect(redirect.toString()).toBe("https://magi-system.windo-c.com/");
+  });
+
+  it("builds OAuth redirect_uri from forwarded proxy headers when no callback URL is configured", () => {
+    stubOAuthEnv();
+    vi.stubEnv("OAUTH_REDIRECT_URI", "");
+    const login = createOAuthLogin(new Request("http://localhost:3000/api/auth/login", {
+      headers: {
+        "x-forwarded-proto": "https",
+        "x-forwarded-host": "magi-system.windo-c.com"
+      }
+    }));
+    const redirect = new URL(login.redirectUrl);
+
+    expect(redirect.searchParams.get("redirect_uri")).toBe("https://magi-system.windo-c.com/api/auth/callback");
   });
 
   it("caches external quota in the encrypted session after OAuth login", async () => {
