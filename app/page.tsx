@@ -611,15 +611,6 @@ export default function Home() {
               <div className="auth-window-head">
                 <div className="auth-title-row">
                   <span>MAGI System</span>
-                  <button
-                    type="button"
-                    className="about-icon-button auth-about-button"
-                    aria-label={t.about}
-                    title={t.about}
-                    onClick={() => setAboutOpen(true)}
-                  >
-                    i
-                  </button>
                 </div>
                 <strong id="auth-title">{authLoading ? t.checkingAuth : t.authTitle}</strong>
               </div>
