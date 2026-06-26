@@ -2,6 +2,24 @@
 
 Transparent read-only multi-agent deliberation system based on `PRD.md`.
 
+## Screenshots
+
+### Home
+
+![MAGI System idle home screen](public/screenshots/magi-home-idle.png)
+
+### Discussion Running
+
+![MAGI System discussion running screen](public/screenshots/magi-discussion-running.png)
+
+### Decision Details
+
+![MAGI System decision details screen](public/screenshots/magi-details-summary.png)
+
+### Agent Detail
+
+![MAGI System agent detail screen](public/screenshots/magi-agent-detail.png)
+
 ## Runtime
 
 - Frontend/backend: Next.js with API routes
@@ -60,7 +78,7 @@ $env:MAGI_QUOTA_ENABLED='false'
 
 With auth disabled, the app uses a local test session. Optional local identity labels can be set with `MAGI_LOCAL_USER_ID`, `MAGI_LOCAL_USER_EMAIL`, and `MAGI_LOCAL_USER_NAME`.
 
-Quota endpoints are available locally at `GET /api/auth/quota` and `POST /api/auth/quota/debit`. When `QUOTA_API_URL` is set and `MAGI_QUOTA_ENABLED` is not `false`, quota is checked against Windo-C Accounts with the authenticated user's OAuth access token. Set `QUOTA_API_URL` to the Accounts base URL, for example `http://localhost:8000` in development or `https://accounts.windo-c.com` in production. Discussion routes call `POST /api/quota/check` before running and `POST /api/quota/consume` only after a successful run, using `MAGI_QUOTA_APP` and `MAGI_QUOTA_FEATURE` without sending a user id. Page/session refresh does not call the quota service; it returns the cached session value only. Use `GET /api/auth/quota` when the UI explicitly needs a fresh quota read. Without `QUOTA_API_URL`, the app falls back to signed local session quota initialized from `MAGI_DEFAULT_QUOTA`.
+Quota endpoints are available locally at `GET /api/auth/quota` and `POST /api/auth/quota/debit`. When `QUOTA_API_URL` is set and `MAGI_QUOTA_ENABLED` is not `false`, quota is checked against the configured quota service with the authenticated user's OAuth access token. Set `QUOTA_API_URL` to the quota service base URL, for example `http://localhost:8000` in development. Discussion routes call `POST /api/quota/check` before running and `POST /api/quota/consume` only after a successful run, using `MAGI_QUOTA_APP` and `MAGI_QUOTA_FEATURE` without sending a user id. Page/session refresh does not call the quota service; it returns the cached session value only. Use `GET /api/auth/quota` when the UI explicitly needs a fresh quota read. Without `QUOTA_API_URL`, the app falls back to signed local session quota initialized from `MAGI_DEFAULT_QUOTA`.
 
 ## Decision Logic
 
